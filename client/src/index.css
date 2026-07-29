@@ -1,0 +1,92 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --dp-c: #00aeef;
+  --dp-m: #ec008c;
+  --dp-y: #fff200;
+  --dp-k: #1f2328;
+  --dp-red: #e11d2e;
+}
+
+@layer base {
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    @apply bg-paper-50 text-ink antialiased;
+    font-family: Satoshi, ui-sans-serif, system-ui, sans-serif;
+    font-size: 16px;
+    text-rendering: optimizeLegibility;
+  }
+  * { -webkit-tap-highlight-color: transparent; }
+  :focus-visible { outline: 2px solid var(--dp-c); outline-offset: 2px; }
+  ::selection { background: var(--dp-y); color: var(--dp-k); }
+  input, select, textarea, button { font-family: inherit; font-size: 16px; }
+  h1, h2, h3, h4 { @apply font-bold tracking-[-0.01em]; }
+}
+
+@layer components {
+  /* CMYK 4-stripe motif — the repeating divider that echoes the logo streak */
+  .cmyk-rule {
+    height: 3px;
+    background: linear-gradient(to right,
+      var(--dp-c) 0 25%, var(--dp-m) 25% 50%, var(--dp-y) 50% 75%, var(--dp-k) 75% 100%);
+  }
+  .cmyk-rule-thin { height: 2px; }
+  .label {
+    @apply text-[11px] font-bold uppercase tracking-[0.14em] text-ink-500;
+  }
+  .card { @apply bg-white border border-ink-100 rounded-xl shadow-card; }
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 min-h-[44px] px-4 rounded-lg text-sm font-bold
+           transition-all duration-150 active:scale-[0.985] disabled:opacity-45 disabled:pointer-events-none;
+  }
+  .btn-primary { @apply btn bg-ink text-white hover:bg-ink-700; }
+  .btn-accent { @apply btn text-white; background: var(--dp-red); }
+  .btn-accent:hover { filter: brightness(0.92); }
+  .btn-ghost { @apply btn bg-white border border-ink-100 text-ink hover:border-ink-300 hover:bg-paper-50; }
+  .btn-sm { @apply min-h-[36px] px-3 text-[13px]; }
+  .field {
+    @apply w-full min-h-[44px] px-3 rounded-lg border border-ink-100 bg-white text-ink
+           placeholder:text-ink-300 focus:border-ink-300 outline-none;
+  }
+  .chip {
+    @apply inline-flex items-center gap-1.5 h-8 px-3 rounded-full border border-ink-100 bg-white
+           text-[12px] font-bold uppercase tracking-[0.08em] text-ink-700 whitespace-nowrap;
+  }
+  .chip-active { @apply bg-ink text-white border-ink; }
+  .skeleton { @apply relative overflow-hidden bg-ink-100/70 rounded; }
+  .skeleton::after {
+    content: ''; position: absolute; inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,.75), transparent);
+    animation: dp-shimmer 1.4s infinite;
+  }
+  .tnum { font-variant-numeric: tabular-nums; }
+  .scroll-x { overflow-x: auto; scrollbar-width: thin; -webkit-overflow-scrolling: touch; }
+  .scroll-x::-webkit-scrollbar { height: 8px; }
+  .scroll-x::-webkit-scrollbar-thumb { background: #D8DADE; border-radius: 8px; }
+}
+
+@keyframes dp-shimmer { 100% { transform: translateX(100%); } }
+@keyframes dp-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.animate-in { animation: dp-in .22s cubic-bezier(.22,.61,.36,1) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}
+
+/* ---------------------------------------------------------------- print
+   Job tickets and packing slips print on letter stock. Keep the lockup and the
+   CMYK rule — they are the header identity — but drop the app chrome. */
+@media print {
+  @page { size: letter; margin: 0.5in; }
+  .no-print { display: none !important; }
+  html, body { background: #fff !important; }
+  body { font-size: 12px; }
+  .card { border: 0 !important; box-shadow: none !important; }
+  .cmyk-rule { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  img { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  a[href]::after { content: none !important; }
+  table { page-break-inside: auto; }
+  tr, li { page-break-inside: avoid; }
+}

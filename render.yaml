@@ -1,0 +1,43 @@
+# Render blueprint — Dakota Prints OS (backend / admin only, no storefront).
+# One Node web service + a persistent disk holding the SQLite DB and uploads.
+services:
+  - type: web
+    name: dakota-prints-os
+    runtime: node
+    plan: starter
+    region: ohio
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: 20.20.1
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: DATABASE_PATH
+        value: /data/dakota.db
+      - key: UPLOAD_DIR
+        value: /data/uploads
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: ADMIN_EMAIL
+        value: admin@dakotaprints.com
+      - key: ADMIN_PASSWORD
+        sync: false          # set in the Render dashboard before going live
+      - key: OS_WEBHOOK_TOKEN
+        sync: false          # shared token the website sends as x-webhook-token
+      - key: WEBSITE_URL
+        value: https://www.dakotaprints.com   # public site this OS backs
+      - key: RESEND_API_KEY
+        sync: false          # optional — transactional email
+      - key: STRIPE_SECRET_KEY
+        sync: false          # optional — card payments
+      - key: TWILIO_AUTH_TOKEN
+        sync: false          # optional — SMS
+    disk:
+      name: dakota-data
+      mountPath: /data
+      sizeGB: 1
