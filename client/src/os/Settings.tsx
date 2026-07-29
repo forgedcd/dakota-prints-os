@@ -26,11 +26,11 @@ const TEMPLATES: [string, string][] = [
 
 const PAYLOAD = `{
   "customer": {
-    "company": "Aberdeen Ace Hardware",
+    "company": "Williston Ace Hardware",
     "contact_name": "Jamie Fox",
     "email": "jamie@example.com",
     "phone": "605-555-0143",
-    "address": "905 6th Ave SE", "city": "Aberdeen", "state": "SD", "zip": "57401"
+    "address": "905 6th Ave SE", "city": "Williston", "state": "ND", "zip": "58801"
   },
   "items": [
     { "sku": "SP-TEE-1C", "qty": 48,

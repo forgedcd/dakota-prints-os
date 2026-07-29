@@ -188,7 +188,7 @@ const PRODUCTS = [
     image_url: '/brand/products/vinyl-decal.jpg',
     options: { sizes: ['Up to 6"','Up to 12"','Up to 24" (+$8.00)'], substrates: ['Gloss vinyl','Matte vinyl','Reflective (+$4.00)'], colors: ['White','Black','Red','Cyan','Magenta','Yellow','Gold metallic'] } },
   { sku: 'VIN-DOOR', name: 'Vehicle Door Lettering', category: 'Vinyl & Decals', base_price: 95.0, unit: 'per pair', min_qty: 1, turnaround_days: 4, stock: null,
-    description: 'DOT-compliant business name, town and phone for both truck doors. Includes layout proof and on-site installation in Aberdeen.',
+    description: 'DOT-compliant business name, town and phone for both truck doors. Includes layout proof and on-site installation in Williston.',
     image_url: '/brand/products/door-lettering.jpg',
     options: { lines: ['2 lines','3 lines','4 lines (+$20.00)'], colors: ['White','Black','Red','Gold metallic'], install: ['Ship flat','Install at shop (+$40.00)'] } },
   { sku: 'BAN-13OZ', name: '13oz Vinyl Banner', category: 'Signage & Banners', base_price: 4.25, unit: 'sq ft', min_qty: 12, turnaround_days: 3, stock: null,
@@ -222,7 +222,7 @@ const PRODUCTS = [
 ];
 
 const CUSTOMERS = [
-  { company: 'Buffalo Ridge Chevrolet', contact_name: 'Dale Hoffmann', email: 'dale@buffaloridgechev.com', phone: '(605) 626-4417', address: '2240 6th Ave SE', city: 'Aberdeen', state: 'SD', zip: '57401', source: 'rep', notes: 'Wants door lettering on every new service truck. Net-30, PO required.' },
+  { company: 'Bakken Ridge Chevrolet', contact_name: 'Dale Hoffmann', email: 'dale@buffaloridgechev.com', phone: '701-572-1140', address: '2240 6th Ave SE', city: 'Williston', state: 'ND', zip: '58801', source: 'rep', notes: 'Wants door lettering on every new service truck. Net-30, PO required.' },
   { company: 'Prairie Gold Co-op', contact_name: 'Marla Vandenberg', email: 'marla@prairiegoldcoop.com', phone: '(605) 297-3182', address: '105 Railroad Ave', city: 'Groton', state: 'SD', zip: '57445', source: 'rep', notes: 'Annual agronomy field day — banners + flyers every June.' },
   { company: 'Redfield High School Athletics', contact_name: 'Coach Tim Ostrem', email: 'tostrem@redfieldpheasants.k12.sd.us', phone: '(605) 472-1188', address: '1215 Main St W', city: 'Redfield', state: 'SD', zip: '57469', source: 'website', notes: 'Pheasant pride tees for every season. Tax exempt on file.' },
   { company: 'The Rusty Spur Bar & Grill', contact_name: 'Jenna Kraus', email: 'jenna@rustyspurbar.com', phone: '(605) 448-2216', address: '18 E Main St', city: 'Watertown', state: 'SD', zip: '57201', source: 'walk-in', notes: 'Tap-takeover tees and yard signs, always rush.' },
@@ -230,9 +230,9 @@ const CUSTOMERS = [
   { company: 'Spink County Fair Board', contact_name: 'Deb Larsen', email: 'deb@spinkcountyfair.org', phone: '(605) 472-0774', address: '400 Fairgrounds Rd', city: 'Redfield', state: 'SD', zip: '57469', source: 'website', notes: 'Sponsor banners due before July 4 parade.' },
   { company: 'Sioux Valley Builders', contact_name: 'Andrew Petsche', email: 'apetsche@siouxvalleybuilders.com', phone: '(712) 335-4102', address: '812 Industrial Park Rd', city: 'Spencer', state: 'IA', zip: '51301', source: 'website', notes: 'Plan sets weekly — 24x36 bond, rolled.' },
   { company: 'Glacial Lakes Plumbing', contact_name: 'Curt Odland', email: 'curt@glaciallakesplumbing.com', phone: '(605) 882-6641', address: '2405 9th Ave SE', city: 'Watertown', state: 'SD', zip: '57201', source: 'rep', notes: 'Van lettering + embroidered polos for six techs.' },
-  { company: 'Northern State Rodeo Club', contact_name: 'Shelby Nack', email: 'shelby.nack@northern.edu', phone: '(605) 626-2500', address: '1200 S Jay St', city: 'Aberdeen', state: 'SD', zip: '57401', source: 'website', notes: 'Student org — needs quote sheets for advisor approval.' },
+  { company: 'Williston State Rodeo Club', contact_name: 'Shelby Nack', email: 'shelby.nack@northern.edu', phone: '701-774-4200', address: '1200 S Jay St', city: 'Williston', state: 'ND', zip: '58801', source: 'website', notes: 'Student org — needs quote sheets for advisor approval.' },
   { company: 'Dakota Feed & Seed', contact_name: 'Wendell Trapp', email: 'wendell@dakotafeedseed.com', phone: '(605) 765-9143', address: '77 Commercial St', city: 'Gettysburg', state: 'SD', zip: '57442', source: 'walk-in', notes: 'Caps and tumblers for customer appreciation day.' },
-  { company: 'Kranzler Family Dental', contact_name: 'Dr. Amy Kranzler', email: 'office@kranzlerdental.com', phone: '(605) 229-3388', address: '1720 8th Ave NE', city: 'Aberdeen', state: 'SD', zip: '57401', source: 'website', notes: 'Business cards + recall postcards. Wants soft-touch finish.' },
+  { company: 'Kranzler Family Dental', contact_name: 'Dr. Amy Kranzler', email: 'office@kranzlerdental.com', phone: '701-572-7700', address: '1720 8th Ave NE', city: 'Williston', state: 'ND', zip: '58801', source: 'website', notes: 'Business cards + recall postcards. Wants soft-touch finish.' },
   { company: 'Milbank Bulldogs Baseball', contact_name: 'Josh Feiner', email: 'jfeiner@milbankbaseball.org', phone: '(605) 432-5591', address: '900 E 4th Ave', city: 'Milbank', state: 'SD', zip: '57252', source: 'website', notes: 'Sponsor fence banners + player hoodies each spring.' },
 ];
 
@@ -309,10 +309,10 @@ export function seed() {
 
   const defaults = {
     shop_name: 'Dakota Prints',
-    shop_tagline: 'Screen print, embroidery, signs & business print — Aberdeen, South Dakota',
-    shop_phone: '(605) 225-7071',
+    shop_tagline: 'Screen print, embroidery, signs & business print — Williston, North Dakota',
+    shop_phone: '701-713-4400',
     shop_email: 'orders@dakotaprints.com',
-    shop_address: '412 S Main St, Aberdeen, SD 57401',
+    shop_address: '201 2nd Ave W, Williston, ND 58801',
     tax_rate: '4.5',
     rush_fee_pct: '20',
     default_turnaround: '7',
@@ -323,7 +323,7 @@ export function seed() {
     tpl_order_received: 'Thanks {{contact_name}} — we received order {{order_number}}. Total {{total}}. We will have a proof to you within one business day.',
     tpl_proof_ready: 'Hi {{contact_name}}, your proof for {{order_number}} is ready. Reply APPROVE and we will put it on the press.',
     tpl_deposit_reminder: '{{contact_name}}, a 50% deposit of {{deposit}} is due on {{order_number}} before we schedule production.',
-    tpl_ready_pickup: 'Good news {{contact_name}} — {{order_number}} is boxed and ready at 412 S Main St, Aberdeen. Open 8–5 weekdays.',
+    tpl_ready_pickup: 'Good news {{contact_name}} — {{order_number}} is boxed and ready at 201 2nd Ave W, Williston. Open 8–5 weekdays.',
     tpl_shipped: '{{order_number}} shipped today. Tracking: {{tracking_number}}.',
     tpl_reorder_followup: 'Hi {{contact_name}} — running low on {{last_product}}? Reorders keep your screens and digitizing on file, no setup fee.',
   };

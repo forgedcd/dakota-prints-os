@@ -1,6 +1,6 @@
 # Dakota Prints OS — backend operating system
 
-The private back office for **Dakota Prints** (Aberdeen, SD): screen printing, embroidery,
+The private back office for **Dakota Prints** (Williston, SD): screen printing, embroidery,
 signs, vinyl, blueprints and business print.
 
 This repo is **the OS only** — there is no customer storefront inside it. The root URL is a
@@ -102,11 +102,11 @@ x-webhook-token: <OS_WEBHOOK_TOKEN>
 ```json
 {
   "customer": {
-    "company": "Aberdeen Ace Hardware",
+    "company": "Williston Ace Hardware",
     "contact_name": "Jamie Fox",
     "email": "jamie@example.com",
     "phone": "605-555-0143",
-    "address": "905 6th Ave SE", "city": "Aberdeen", "state": "SD", "zip": "57401"
+    "address": "905 6th Ave SE", "city": "Williston", "state": "ND", "zip": "58801"
   },
   "items": [
     { "sku": "SP-TEE-1C", "qty": 48,

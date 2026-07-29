@@ -407,8 +407,8 @@ router.post('/webhooks/test', async (req, res) => {
   const payload = {
     source_label: 'Settings → Send test order',
     customer: {
-      company: 'Aberdeen Ace Hardware', contact_name: 'Test Customer', email: 'testorder@dakotaprints.com',
-      phone: '(605) 225-0100', address: '905 6th Ave SE', city: 'Aberdeen', state: 'SD', zip: '57401',
+      company: 'Williston Ace Hardware', contact_name: 'Test Customer', email: 'testorder@dakotaprints.com',
+      phone: '701-713-4401', address: '905 6th Ave SE', city: 'Williston', state: 'ND', zip: '58801',
     },
     items: [
       { sku: 'SP-TEE-1C', qty: 48, spec: { size_breakdown: { S: 6, M: 12, L: 18, XL: 12 }, ink_colors: 'White + Red', placement: 'Front, 11" wide' } },
