@@ -1,0 +1,163 @@
+Dakota Prints OS — pricing spot-check
+Base URL: http://localhost:5055
+Run at: 2026-07-30T20:55:52.198Z
+
+=== Stapled Ticket Books — Black & White (stapled-ticket-books-black-white) vs stapled-ticket-books-bw.csv ===
+  PASS  8.5" x 11" / 2 Parts / EACH  ->  51.1 (expected 51.10)
+  PASS  8.5" x 11" / 2 Parts / 20 books  ->  409.7 (expected 409.70)
+  PASS  8.5" x 11" / 2 Parts / 50 books  ->  866.7 (expected 866.70)
+  PASS  8.5" x 11" / 3 Parts / 10 books  ->  300.8 (expected 300.80)
+  PASS  8.5" x 11" / 3 Parts / 40 books  ->  941 (expected 941.00)
+  PASS  8.5" x 11" / 4 Parts / 5 books  ->  218.8 (expected 218.80)
+  PASS  8.5" x 11" / 4 Parts / 30 books  ->  818 (expected 818.00)
+  PASS  5.5" x 8.5" / 2 Parts / EACH  ->  44.05 (expected 44.05)
+  PASS  5.5" x 8.5" / 2 Parts / 20 books  ->  336.9 (expected 336.90)
+  PASS  5.5" x 8.5" / 2 Parts / 50 books  ->  716.1 (expected 716.10)
+  PASS  5.5" x 8.5" / 3 Parts / 10 books  ->  241.4 (expected 241.40)
+  PASS  5.5" x 8.5" / 3 Parts / 40 books  ->  718.6 (expected 718.60)
+  PASS  5.5" x 8.5" / 4 Parts / 5 books  ->  179.6 (expected 179.60)
+  PASS  5.5" x 8.5" / 4 Parts / 30 books  ->  621.8 (expected 621.80)
+  PASS  8.5" x 14" / 2 Parts / EACH  ->  61.79 (expected 61.79)
+  PASS  8.5" x 14" / 2 Parts / 20 books  ->  488.83 (expected 488.83)
+  PASS  8.5" x 14" / 2 Parts / 50 books  ->  1029.87 (expected 1029.87)
+  PASS  8.5" x 14" / 3 Parts / 10 books  ->  361.48 (expected 361.48)
+  PASS  8.5" x 14" / 3 Parts / 40 books  ->  1126.02 (expected 1126.02)
+  PASS  8.5" x 14" / 4 Parts / 5 books  ->  264.19 (expected 264.19)
+  PASS  8.5" x 14" / 4 Parts / 30 books  ->  981.46 (expected 981.46)
+  (checked 21 matrix cells for Stapled Ticket Books — Black & White)
+
+=== Stapled Ticket Books — Full Color (stapled-ticket-books-full-color) vs stapled-ticket-books-color.csv ===
+  PASS  8.5" x 11" / 2 Parts / EACH  ->  63.25 (expected 63.25)
+  PASS  8.5" x 11" / 2 Parts / 20 books  ->  499.63 (expected 499.63)
+  PASS  8.5" x 11" / 2 Parts / 50 books  ->  1052.13 (expected 1052.13)
+  PASS  8.5" x 11" / 3 Parts / 10 books  ->  369.75 (expected 369.75)
+  PASS  8.5" x 11" / 3 Parts / 40 books  ->  1151.25 (expected 1151.25)
+  PASS  8.5" x 11" / 4 Parts / 5 books  ->  270.38 (expected 270.38)
+  PASS  8.5" x 11" / 4 Parts / 30 books  ->  1003.75 (expected 1003.75)
+  PASS  5.5" x 8.5" / 2 Parts / EACH  ->  54.44 (expected 54.44)
+  PASS  5.5" x 8.5" / 2 Parts / 20 books  ->  408.63 (expected 408.63)
+  PASS  5.5" x 8.5" / 2 Parts / 50 books  ->  863.88 (expected 863.88)
+  PASS  5.5" x 8.5" / 3 Parts / 10 books  ->  295.5 (expected 295.50)
+  PASS  5.5" x 8.5" / 3 Parts / 40 books  ->  873.25 (expected 873.25)
+  PASS  5.5" x 8.5" / 4 Parts / 5 books  ->  221.38 (expected 221.38)
+  PASS  5.5" x 8.5" / 4 Parts / 30 books  ->  758.5 (expected 758.50)
+  PASS  8.5" x 14" / 2 Parts / EACH  ->  76.62 (expected 76.62)
+  PASS  8.5" x 14" / 2 Parts / 20 books  ->  598.54 (expected 598.54)
+  PASS  8.5" x 14" / 2 Parts / 50 books  ->  1256.09 (expected 1256.09)
+  PASS  8.5" x 14" / 3 Parts / 10 books  ->  445.6 (expected 445.60)
+  PASS  8.5" x 14" / 3 Parts / 40 books  ->  1382.53 (expected 1382.53)
+  PASS  8.5" x 14" / 4 Parts / 5 books  ->  327.11 (expected 327.11)
+  PASS  8.5" x 14" / 4 Parts / 30 books  ->  1208.08 (expected 1208.08)
+  (checked 21 matrix cells for Stapled Ticket Books — Full Color)
+
+=== Glued Edge Books — Black & White (glued-edge-books-black-white) vs glued-edge-bw.csv ===
+  PASS  8.5" x 11" / 2 Parts / EACH  ->  41.49 (expected 41.49)
+  PASS  8.5" x 11" / 2 Parts / 20 books  ->  281.1 (expected 281.10)
+  PASS  8.5" x 11" / 2 Parts / 50 books  ->  531.4 (expected 531.40)
+  PASS  8.5" x 11" / 3 Parts / 10 books  ->  237.3 (expected 237.30)
+  PASS  8.5" x 11" / 3 Parts / 40 books  ->  667.9 (expected 667.90)
+  PASS  8.5" x 11" / 4 Parts / 5 books  ->  191.3 (expected 191.30)
+  PASS  8.5" x 11" / 4 Parts / 30 books  ->  623 (expected 623.00)
+  PASS  5.5" x 8.5" / 2 Parts / EACH  ->  36.27 (expected 36.27)
+  PASS  5.5" x 8.5" / 2 Parts / 20 books  ->  215.4 (expected 215.40)
+  PASS  5.5" x 8.5" / 2 Parts / 50 books  ->  406.1 (expected 406.10)
+  PASS  5.5" x 8.5" / 3 Parts / 10 books  ->  176 (expected 176.00)
+  PASS  5.5" x 8.5" / 3 Parts / 40 books  ->  459.3 (expected 459.30)
+  PASS  5.5" x 8.5" / 4 Parts / 5 books  ->  148.7 (expected 148.70)
+  PASS  5.5" x 8.5" / 4 Parts / 30 books  ->  429.1 (expected 429.10)
+  PASS  8.5" x 14" / 2 Parts / EACH  ->  54.66 (expected 54.66)
+  PASS  8.5" x 14" / 2 Parts / 20 books  ->  372.3 (expected 372.30)
+  PASS  8.5" x 14" / 2 Parts / 50 books  ->  706.3 (expected 706.30)
+  PASS  8.5" x 14" / 3 Parts / 10 books  ->  296.9 (expected 296.90)
+  PASS  8.5" x 14" / 3 Parts / 40 books  ->  787.2 (expected 787.20)
+  PASS  8.5" x 14" / 4 Parts / 5 books  ->  234 (expected 234.00)
+  PASS  8.5" x 14" / 4 Parts / 30 books  ->  732.5 (expected 732.50)
+  (checked 21 matrix cells for Glued Edge Books — Black & White)
+
+=== Glued Edge Books — Full Color (glued-edge-books-full-color) vs glued-edge-color.csv ===
+  PASS  8.5" x 11" / 2 Parts / EACH  ->  51.86 (expected 51.86)
+  PASS  8.5" x 11" / 2 Parts / 20 books  ->  351.38 (expected 351.38)
+  PASS  8.5" x 11" / 2 Parts / 50 books  ->  664.25 (expected 664.25)
+  PASS  8.5" x 11" / 3 Parts / 10 books  ->  296.63 (expected 296.63)
+  PASS  8.5" x 11" / 3 Parts / 40 books  ->  834.88 (expected 834.88)
+  PASS  8.5" x 11" / 4 Parts / 5 books  ->  239.13 (expected 239.13)
+  PASS  8.5" x 11" / 4 Parts / 30 books  ->  778.75 (expected 778.75)
+  PASS  5.5" x 8.5" / 2 Parts / EACH  ->  45.34 (expected 45.34)
+  PASS  5.5" x 8.5" / 2 Parts / 20 books  ->  269.25 (expected 269.25)
+  PASS  5.5" x 8.5" / 2 Parts / 50 books  ->  507.63 (expected 507.63)
+  PASS  5.5" x 8.5" / 3 Parts / 10 books  ->  220 (expected 220.00)
+  PASS  5.5" x 8.5" / 3 Parts / 40 books  ->  574.13 (expected 574.13)
+  PASS  5.5" x 8.5" / 4 Parts / 5 books  ->  185.88 (expected 185.88)
+  PASS  5.5" x 8.5" / 4 Parts / 30 books  ->  536.38 (expected 536.38)
+  PASS  8.5" x 14" / 2 Parts / EACH  ->  68.33 (expected 68.33)
+  PASS  8.5" x 14" / 2 Parts / 20 books  ->  465.38 (expected 465.38)
+  PASS  8.5" x 14" / 2 Parts / 50 books  ->  882.88 (expected 882.88)
+  PASS  8.5" x 14" / 3 Parts / 10 books  ->  371.13 (expected 371.13)
+  PASS  8.5" x 14" / 3 Parts / 40 books  ->  984 (expected 984.00)
+  PASS  8.5" x 14" / 4 Parts / 5 books  ->  292.5 (expected 292.50)
+  PASS  8.5" x 14" / 4 Parts / 30 books  ->  915.63 (expected 915.63)
+  (checked 21 matrix cells for Glued Edge Books — Full Color)
+
+=== Vinyl Banners (sqft) ===
+  PASS  13oz material present
+  PASS  18oz material present
+  PASS  13oz rate/sqft  ->  5.5 (expected 5.5)
+  PASS  18oz rate/sqft  ->  6.5 (expected 6.5)
+  PASS  13oz does NOT allow double-sided
+  PASS  18oz allows double-sided
+  PASS  13oz 4x8ft single-sided HTTP 200  (status=200)
+  PASS  13oz 4x8ft single-sided total (32 sqft * $5.50)  ->  176 (expected 176)
+  PASS  18oz 3x4ft double-sided HTTP 200  (status=200)
+  PASS  18oz 3x4ft double-sided total (12 sqft * $6.50 * 2)  ->  156 (expected 156)
+  PASS  18oz 2x3ft single-sided qty=3 HTTP 200  (status=200)
+  PASS  18oz 2x3ft single-sided qty=3 total (6 sqft * $6.50 * 3)  ->  117 (expected 117)
+  PASS  13oz tiny 6x6in HTTP 200  (status=200)
+  PASS  13oz tiny 6x6in floored to minimum_sqft (1 * $5.50)  ->  5.5 (expected 5.5)
+  PASS  meta.billed_sqft reflects the floor  ->  1 (expected 1)
+  PASS  meta.exact_sqft is the true (unfloored) value  (exact_sqft=0.25)
+  PASS  double-sided 13oz banner REJECTED (400)  (status=400 body={"error":"13oz does not support double-sided printing.","code":"double_sided_not_allowed"})
+  PASS  rejection code is double_sided_not_allowed  (code=double_sided_not_allowed)
+  PASS  zero width REJECTED (400)  (status=400)
+  PASS  rejection code is invalid_dimensions  (code=invalid_dimensions)
+
+=== Large Format Posters (sqft, single-sided only, $4.50) ===
+  PASS  rate_per_sqft  ->  4.5 (expected 4.5)
+  PASS  no materials list (single default rate)
+  PASS  poster 2x3ft HTTP 200  (status=200)
+  PASS  poster 2x3ft total (6 sqft * $4.50)  ->  27 (expected 27)
+
+=== Business Cards (flat_option) ===
+  PASS  250-card option present
+  PASS  500-card option present
+  PASS  250 cards price  ->  85 (expected 85)
+  PASS  500 cards price  ->  95 (expected 95)
+  PASS  250 cards qty=1 HTTP 200
+  PASS  250 cards qty=1 total  ->  85 (expected 85)
+  PASS  500 cards qty=2 HTTP 200
+  PASS  500 cards qty=2 total (2 x $95.00)  ->  190 (expected 190)
+
+=== Engineering Drawings (flat_option, per-sheet) ===
+  PASS  unit_label is "per sheet"  ->  per sheet (expected per sheet)
+  PASS  11x17 option present
+  PASS  24x36 option present
+  PASS  40x32 option present
+  PASS  11x17 price/sheet  ->  1.25 (expected 1.25)
+  PASS  24x36 price/sheet  ->  4.5 (expected 4.5)
+  PASS  40x32 price/sheet  ->  5 (expected 5)
+  PASS  11x17 x10 sheets HTTP 200
+  PASS  11x17 x10 sheets total (10 x $1.25)  ->  12.5 (expected 12.5)
+  PASS  40x32 x3 sheets HTTP 200
+  PASS  40x32 x3 sheets total (3 x $5.00)  ->  15 (expected 15)
+  PASS  unknown flat_option id REJECTED (400)  (status=400)
+  PASS  rejection code is unknown_option  (code=unknown_option)
+
+=== Matrix validation ===
+  PASS  foreign axis-value id REJECTED (400)  (status=400 body={"error":"Invalid selection for \"Quantity\".","code":"unknown_axis_value"})
+  PASS  rejection code is unknown_axis_value  (code=unknown_axis_value)
+  PASS  incomplete axis selection REJECTED (400)  (status=400)
+  PASS  rejection code is incomplete_selection  (code=incomplete_selection)
+
+=== SUMMARY ===
+Matrix cells checked: 84 (>= 20 required)
+Total assertions: 133  |  PASS: 133  |  FAIL: 0
+RESULT: ALL CHECKS PASSED

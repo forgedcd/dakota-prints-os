@@ -35,6 +35,8 @@ services:
         value: https://www.dakotaprints.com,https://dakotaprints.com   # CORS allow-list for /api/public/*
       - key: DESIGN_NOTIFY_EMAIL
         value: orders@dakotaprints.com        # design-request notifications
+      - key: SEED_DEMO_ORDERS
+        value: "false"        # opt-in only — keep false in production so no demo orders/customers seed alongside the real catalog
       - key: RESEND_API_KEY
         sync: false          # optional — transactional email
       - key: STRIPE_SECRET_KEY

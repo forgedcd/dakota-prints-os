@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Copy, Save, Webhook, Users, Terminal, RefreshCw, Send, Globe, Activity,
-  CheckCircle2, XCircle, ExternalLink, Mail, Palette, Package,
+  CheckCircle2, XCircle, ExternalLink, Mail, Palette, Package, AlertTriangle, Trash2,
 } from 'lucide-react';
 import { API_BASE, get, post, put, shortDate } from '../lib/api';
 import { Badge, Field, SkeletonRows, Spinner, useToast } from '../components/kit';
@@ -60,7 +60,20 @@ export default function Settings() {
   const [testing, setTesting] = useState(false);
   const [checking, setChecking] = useState(false);
   const [lastTest, setLastTest] = useState<any | null>(null);
+  const [clearConfirm, setClearConfirm] = useState('');
+  const [clearing, setClearing] = useState(false);
   const { toast } = useToast();
+
+  const CLEAR_PHRASE = 'DELETE ALL ORDERS';
+  async function clearAllOrders() {
+    if (clearConfirm !== CLEAR_PHRASE) return;
+    setClearing(true);
+    try {
+      const r = await post('/api/os/settings/clear-orders', { confirm: clearConfirm });
+      toast(`${r.orders_deleted} order${r.orders_deleted === 1 ? '' : 's'} deleted`);
+      setClearConfirm('');
+    } catch (e: any) { toast(e.message, 'err'); } finally { setClearing(false); }
+  }
 
   const loadHook = () => get('/api/os/webhooks').then(setHook).catch(() => setHook({ log: [] }));
   useEffect(() => { get('/api/os/settings').then(setS).catch(() => setS({})); loadHook(); }, []);
@@ -382,6 +395,26 @@ curl -X POST ${ordersUrl.replace('/orders', '/uploads')} \\
           Demo passwords are seeded from ADMIN_PASSWORD (default <span className="font-mono">ForgedOS2026!</span>). Change it in the
           environment before a real deploy.
         </p>
+      </section>
+
+      <section className="card p-4 border-2 border-[#E11D2E]/25">
+        <div className="flex items-center gap-2">
+          <AlertTriangle size={16} className="text-dpred" />
+          <h2 className="font-black text-[14px] text-dpred">Danger zone</h2>
+        </div>
+        <p className="mt-1.5 text-[12.5px] text-ink-500">
+          Permanently deletes every order, order item, event and file record. Tasks, notifications and messages tied to
+          those orders are kept but unlinked. Customers are kept with total spend reset to $0. This cannot be undone —
+          type <span className="font-mono font-bold text-ink-700">{CLEAR_PHRASE}</span> to confirm.
+        </p>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <input className="field font-mono max-w-xs" placeholder={CLEAR_PHRASE} value={clearConfirm}
+            onChange={(e) => setClearConfirm(e.target.value)} aria-label="Type DELETE ALL ORDERS to confirm" />
+          <button className="btn-primary bg-dpred hover:bg-[#A5121F] btn-sm" disabled={clearConfirm !== CLEAR_PHRASE || clearing}
+            onClick={clearAllOrders}>
+            {clearing ? <Spinner /> : <Trash2 size={14} />} Clear all orders
+          </button>
+        </div>
       </section>
 
       <div className="sticky bottom-3 flex justify-end">

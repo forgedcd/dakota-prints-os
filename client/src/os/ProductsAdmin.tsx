@@ -6,13 +6,20 @@ import {
   AlertTriangle, ArrowDown, ArrowUp, Copy, Eye, EyeOff, GripVertical, Image as ImageIcon,
   Layers, Palette, Plus, Search, Sparkles, Star, Tag, Trash2, Upload, X,
 } from 'lucide-react';
-import { asset, CATEGORIES, del, get, money, patch, post, put } from '../lib/api';
+import { API_BASE, asset, CATEGORIES, del, get, money, patch, post, put } from '../lib/api';
 import { Badge, ConfirmDialog, Drawer, EmptyState, Field, SkeletonRows, Spinner, useToast } from '../components/kit';
 
 type P = any;
 
 const TABS = ['Details', 'Pricing', 'Sizes & options', 'Images', 'Design service'] as const;
 type Tab = typeof TABS[number];
+
+const PRICING_MODES = [
+  { value: 'tiered_unit', label: 'Quantity breaks (default)' },
+  { value: 'flat_option', label: 'Flat price per option' },
+  { value: 'sqft', label: 'Per square foot' },
+  { value: 'matrix', label: 'Matrix (size × parts × quantity, etc.)' },
+] as const;
 
 const APPAREL_PRESET = [
   { label: 'S', upcharge: 0 }, { label: 'M', upcharge: 0 }, { label: 'L', upcharge: 0 },
@@ -48,6 +55,66 @@ function LiveChip({ published, active }: { published: boolean; active: boolean }
 
 const numOrEmpty = (v: any) => (v === null || v === undefined || v === '' ? '' : String(v));
 
+/** Renders a price-grid editor for a 2-4 axis matrix. Supports up to 4 axes by
+ *  nesting the first two as row/column headers and flattening any remaining
+ *  axes into extra row groups (kept simple since this OS only needs 3 axes). */
+function MatrixGrid({ axes, cells, setCell }: { axes: any[]; cells: Record<string, string>; setCell: (k: string, v: string) => void }) {
+  if (axes.length < 2) return null;
+  const [rowsAxis, colsAxis, ...restAxes] = axes;
+  const restCombos: number[][] = restAxes.reduce((acc: number[][], a: any) => {
+    const idxs = a.values.map((_: any, i: number) => i);
+    if (!acc.length) return idxs.map((i: number) => [i]);
+    const out: number[][] = [];
+    acc.forEach((prefix) => idxs.forEach((i: number) => out.push([...prefix, i])));
+    return out;
+  }, [[]]);
+
+  return (
+    <div className="space-y-4">
+      {restCombos.map((restIdx, ri) => (
+        <div key={ri}>
+          {restAxes.length > 0 && (
+            <p className="text-[12px] font-bold text-ink-500 mb-1">
+              {restAxes.map((a, ai) => a.values[restIdx[ai]]?.value).join(' · ')}
+            </p>
+          )}
+          <div className="scroll-x -mx-1 px-1 rounded-lg border border-ink-100">
+            <table className="text-[12.5px] border-collapse w-full">
+              <thead>
+                <tr>
+                  <th className="sticky left-0 z-10 bg-white p-1.5 text-left text-ink-400 font-bold whitespace-nowrap border-r border-ink-100">{rowsAxis.name} \ {colsAxis.name}</th>
+                  {colsAxis.values.map((cv: any, ci: number) => (
+                    <th key={ci} className="p-1.5 text-ink-500 font-bold whitespace-nowrap">{cv.value}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rowsAxis.values.map((rv: any, rvi: number) => (
+                  <tr key={rvi}>
+                    <td className="sticky left-0 z-10 bg-white p-1.5 font-bold whitespace-nowrap border-r border-ink-100">{rv.value}</td>
+                    {colsAxis.values.map((_: any, ci: number) => {
+                      const idx = [rvi, ci, ...restIdx];
+                      const key = idx.join('|');
+                      return (
+                        <td key={ci} className="p-1">
+                          <input className="field tnum w-20 text-right py-1" type="number" step="0.01"
+                            value={cells[key] ?? ''} onChange={(e) => setCell(key, e.target.value)} placeholder="—" />
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-1 text-[11px] text-ink-400 sm:hidden">Swipe to see more columns →</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+
 // =============================================================== product editor
 function ProductEditor({ initial, onSaved, onClose }:
   { initial: P; onSaved: (p?: P) => void; onClose: () => void }) {
@@ -69,6 +136,12 @@ function ProductEditor({ initial, onSaved, onClose }:
     design_service_help: initial.design_service_help || '',
     allow_artwork_upload: initial.allow_artwork_upload ?? 1,
     options_json: initial.options_json || '{}',
+    pricing_mode: initial.pricing_mode || 'tiered_unit',
+    unit_label: initial.unit_label || '',
+    rate_per_sqft: numOrEmpty(initial.rate_per_sqft),
+    minimum_sqft: numOrEmpty(initial.minimum_sqft ?? 1),
+    double_sided_multiplier: numOrEmpty(initial.double_sided_multiplier ?? 2),
+    fine_print: initial.fine_print || '',
   }));
   const set = (k: string, v: any) => setF((s: P) => ({ ...s, [k]: v }));
 
@@ -82,6 +155,15 @@ function ProductEditor({ initial, onSaved, onClose }:
   const [uploading, setUploading] = useState(false);
   const dragImg = useRef<number | null>(null);
 
+  // pricing-mode sub-collections
+  const [options, setOptions] = useState<P[]>([]);
+  const [materials, setMaterials] = useState<P[]>([]);
+  const [axes, setAxes] = useState<P[]>([]);
+  const [imports, setImports] = useState<P[]>([]);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importPreview, setImportPreview] = useState<P | null>(null);
+  const [importBusy, setImportBusy] = useState(false);
+
   const id = product?.id;
 
   const refresh = useCallback(async () => {
@@ -93,6 +175,20 @@ function ProductEditor({ initial, onSaved, onClose }:
     ]);
     setImages(imgs); setVariants(vars); setTiers(ts);
   }, [id]);
+
+  const mode = f.pricing_mode || 'tiered_unit';
+
+  const refreshPricing = useCallback(async () => {
+    if (!id) return;
+    try {
+      if (mode === 'flat_option') setOptions(await get(`/api/os/products/${id}/options`));
+      else if (mode === 'sqft') setMaterials(await get(`/api/os/products/${id}/materials`));
+      else if (mode === 'matrix') setAxes(await get(`/api/os/products/${id}/axes`));
+      if (mode !== 'tiered_unit') setImports(await get(`/api/os/products/${id}/pricing-imports`));
+    } catch { /* new/unsaved product */ }
+  }, [id, mode]);
+
+  useEffect(() => { refreshPricing(); }, [refreshPricing]);
 
   useEffect(() => { refresh(); }, [refresh]);
 
@@ -234,6 +330,139 @@ function ProductEditor({ initial, onSaved, onClose }:
     } catch (e: any) { toast(e.message, 'err'); } finally { setBusy(false); }
   }
 
+  // ---------------------------------------------------- flat_option / sqft / matrix
+  const addOption = () => setOptions((o) => [...o, { label: '', price: '', sku_suffix: '', sort_order: o.length, active: 1 }]);
+  const setOption = (i: number, k: string, v: any) => setOptions((list) => list.map((row, j) => (j === i ? { ...row, [k]: v } : row)));
+  async function saveOptions() {
+    let target = id;
+    if (!target) { const saved = await saveDetails({}, true); target = saved?.id; if (!target) return; }
+    setBusy(true);
+    try {
+      const payload = options.filter((o) => o.label).map((o, i) => ({
+        label: o.label, price: Number(o.price) || 0, sku_suffix: o.sku_suffix || null, sort_order: i, active: o.active ? 1 : 0,
+      }));
+      setOptions(await put(`/api/os/products/${target}/options`, { options: payload }));
+      onSaved(); toast('Pricing options saved');
+    } catch (e: any) { toast(e.message, 'err'); } finally { setBusy(false); }
+  }
+
+  const addMaterial = () => setMaterials((m) => [...m, { label: '', rate_per_sqft: '', allows_double_sided: 1, sort_order: m.length, active: 1 }]);
+  const setMaterial = (i: number, k: string, v: any) => setMaterials((list) => list.map((row, j) => (j === i ? { ...row, [k]: v } : row)));
+  async function saveMaterials() {
+    let target = id;
+    if (!target) { const saved = await saveDetails({}, true); target = saved?.id; if (!target) return; }
+    setBusy(true);
+    try {
+      const payload = materials.filter((m) => m.label).map((m, i) => ({
+        label: m.label, rate_per_sqft: Number(m.rate_per_sqft) || 0, allows_double_sided: m.allows_double_sided ? 1 : 0, sort_order: i, active: m.active ? 1 : 0,
+      }));
+      setMaterials(await put(`/api/os/products/${target}/materials`, { materials: payload }));
+      onSaved(); toast('Materials saved');
+    } catch (e: any) { toast(e.message, 'err'); } finally { setBusy(false); }
+  }
+
+  // matrix: price grid keyed by positional-index cell key "i|j|k" (per axis order) -> string price
+  const [matrixCells, setMatrixCells] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (mode !== 'matrix' || !id || axes.length < 2) { setMatrixCells({}); return; }
+    (async () => {
+      const rawCells = await get(`/api/os/products/${id}/matrix-cells`);
+      const idToIdx = axes.map((a: P) => new Map(a.values.map((v: P, i: number) => [v.id, i])));
+      const m: Record<string, string> = {};
+      for (const c of rawCells) {
+        const ids = String(c.cell_key).split('|').map(Number);
+        const idx = ids.map((valId, ai) => idToIdx[ai]?.get(valId));
+        if (idx.some((x: any) => x === undefined)) continue;
+        m[idx.join('|')] = String(c.price);
+      }
+      setMatrixCells(m);
+    })();
+  }, [mode, id, axes]);
+
+  const setCell = (key: string, v: string) => setMatrixCells((m) => ({ ...m, [key]: v }));
+
+  async function saveGrid() {
+    if (!id || axes.length < 2) return;
+    const combos: number[][] = axes.reduce((acc: number[][], a: P) => {
+      const idxs = a.values.map((_: P, i: number) => i);
+      if (!acc.length) return idxs.map((i: number) => [i]);
+      const out: number[][] = [];
+      acc.forEach((prefix) => idxs.forEach((i: number) => out.push([...prefix, i])));
+      return out;
+    }, []);
+    const cells = combos
+      .map((idx) => ({ key: idx.join('|'), values: idx, price: matrixCells[idx.join('|')] }))
+      .filter((c) => c.price !== undefined && c.price !== '')
+      .map((c) => ({ values: c.values, price: Number(c.price) || 0 }));
+    await saveMatrixCells(cells);
+  }
+
+  const addAxis = () => setAxes((a) => (a.length >= 4 ? a : [...a, { name: '', values: [{ value: '' }] }]));
+  const setAxisName = (i: number, name: string) => setAxes((list) => list.map((a, j) => (j === i ? { ...a, name } : a)));
+  const addAxisValue = (ai: number) => setAxes((list) => list.map((a, j) => (j === ai ? { ...a, values: [...a.values, { value: '' }] } : a)));
+  const setAxisValue = (ai: number, vi: number, value: string) =>
+    setAxes((list) => list.map((a, j) => (j === ai ? { ...a, values: a.values.map((v: P, k: number) => (k === vi ? { ...v, value } : v)) } : a)));
+  const removeAxisValue = (ai: number, vi: number) =>
+    setAxes((list) => list.map((a, j) => (j === ai ? { ...a, values: a.values.filter((_: P, k: number) => k !== vi) } : a)));
+  const removeAxis = (ai: number) => setAxes((list) => list.filter((_, j) => j !== ai));
+
+  async function saveAxes() {
+    let target = id;
+    if (!target) { const saved = await saveDetails({}, true); target = saved?.id; if (!target) return; }
+    if (axes.length < 2 || axes.length > 4) return toast('Matrix pricing needs 2-4 axes', 'err');
+    setBusy(true);
+    try {
+      const payload = { axes: axes.map((a) => ({ name: a.name, values: a.values.filter((v: P) => v.value).map((v: P) => ({ value: v.value, meta: v.meta || null })) })), cells: [] };
+      const r = await put(`/api/os/products/${target}/matrix`, payload);
+      setAxes(r.axes || []);
+      onSaved(); toast('Axes saved — now fill in the price grid below');
+    } catch (e: any) { toast(e.message, 'err'); } finally { setBusy(false); }
+  }
+
+  async function saveMatrixCells(cells: { values: number[]; price: number }[]) {
+    if (!id) return;
+    setBusy(true);
+    try {
+      const payload = { axes: axes.map((a) => ({ name: a.name, values: a.values.map((v: P) => ({ value: v.value, meta: v.meta || null })) })), cells };
+      const r = await put(`/api/os/products/${id}/matrix`, payload);
+      setAxes(r.axes || []);
+      onSaved(); toast(`Price grid saved (${r.added} cells)`);
+    } catch (e: any) { toast(e.message, 'err'); } finally { setBusy(false); }
+  }
+
+  // ------------------------------------------------------------- CSV importer
+  async function previewImport() {
+    if (!importFile || !id) return;
+    setImportBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', importFile);
+      const r = await post(`/api/os/products/${id}/pricing-import/preview`, fd);
+      setImportPreview(r);
+    } catch (e: any) { toast(e.message, 'err'); } finally { setImportBusy(false); }
+  }
+
+  async function commitImport() {
+    if (!importPreview || !id) return;
+    setImportBusy(true);
+    try {
+      const r = await post(`/api/os/products/${id}/pricing-import/commit`, { csv_text: importPreview.csv_text, filename: importPreview.filename });
+      toast(`Import committed: ${r.diff.new.length} new, ${r.diff.changed.length} changed`);
+      setImportPreview(null); setImportFile(null);
+      await refreshPricing();
+      onSaved();
+    } catch (e: any) { toast(e.message, 'err'); } finally { setImportBusy(false); }
+  }
+
+  function downloadTemplate() {
+    if (!id) return toast('Save the product first', 'err');
+    window.open(`${API_BASE}/api/os/products/${id}/pricing-import/template`, '_blank');
+  }
+  function downloadExport() {
+    if (!id) return toast('Save the product first', 'err');
+    window.open(`${API_BASE}/api/os/products/${id}/pricing-export`, '_blank');
+  }
+
   const needsSave = <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-ink-300">unsaved</span>;
 
   return (
@@ -320,67 +549,266 @@ function ProductEditor({ initial, onSaved, onClose }:
       {/* ------------------------------------------------------------ pricing */}
       {tab === 'Pricing' && (
         <div className="space-y-4">
-          <div className="grid sm:grid-cols-2 gap-3">
-            <Field label="Base price" hint="Used when no quantity break or variant price applies">
-              <input className="field tnum" type="number" step="0.01" value={f.base_price} onChange={(e) => set('base_price', e.target.value)} />
+          <div className="card p-3.5">
+            <Field label="Pricing mode" hint="Controls which fields below apply and how the website computes price.">
+              <select className="field" value={mode} onChange={(e) => set('pricing_mode', e.target.value)}>
+                {PRICING_MODES.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+              </select>
             </Field>
-            <Field label="Unit label"><input className="field" value={f.unit} onChange={(e) => set('unit', e.target.value)} /></Field>
+            <Field label="Fine print" hint="Shown under the price on the product page, e.g. add-on guide disclosure.">
+              <input className="field" value={f.fine_print} onChange={(e) => set('fine_print', e.target.value)} placeholder="none" />
+            </Field>
+            <button className="btn-ghost btn-sm mt-1" disabled={busy} onClick={() => saveDetails()}>Save mode &amp; fine print</button>
           </div>
-          <button className="btn-ghost btn-sm" disabled={busy} onClick={() => saveDetails()}>Save base price</button>
 
-          <div className="card p-3.5">
-            <div className="flex items-center justify-between gap-2">
-              <div>
-                <p className="font-bold text-[13.5px]">Quantity breaks</p>
-                <p className="text-[12px] text-ink-500">The highest break at or below the order quantity wins.</p>
+          {mode === 'tiered_unit' && (
+            <>
+              <div className="grid sm:grid-cols-2 gap-3">
+                <Field label="Base price" hint="Used when no quantity break or variant price applies">
+                  <input className="field tnum" type="number" step="0.01" value={f.base_price} onChange={(e) => set('base_price', e.target.value)} />
+                </Field>
+                <Field label="Unit label"><input className="field" value={f.unit} onChange={(e) => set('unit', e.target.value)} /></Field>
               </div>
-              <button className="btn-ghost btn-sm" onClick={addTier}><Plus size={14} /> Add break</button>
-            </div>
-            <div className="mt-3 space-y-2">
-              {tiers.length === 0 && <p className="text-[13px] text-ink-500">No breaks — every quantity pays the base price.</p>}
-              {tiers.map((t, i) => (
-                <div key={i} className="flex items-end gap-2">
-                  <label className="flex-1"><span className="label block mb-1">Min qty</span>
-                    <input className="field tnum" type="number" min="1" value={numOrEmpty(t.min_qty)} onChange={(e) => setTier(i, 'min_qty', e.target.value)} /></label>
-                  <label className="flex-1"><span className="label block mb-1">Unit price</span>
-                    <input className="field tnum" type="number" step="0.01" value={numOrEmpty(t.unit_price)} onChange={(e) => setTier(i, 'unit_price', e.target.value)} /></label>
-                  <button className="btn-ghost btn-sm text-dpred mb-[1px]" aria-label={`Remove break ${i + 1}`}
-                    onClick={() => setTiers((list) => list.filter((_, j) => j !== i))}><Trash2 size={14} /></button>
-                </div>
-              ))}
-            </div>
-            {tierError && (
-              <p className="mt-2.5 flex items-start gap-1.5 text-[12.5px] font-semibold text-[#A5121F]">
-                <AlertTriangle size={14} className="mt-[1px] shrink-0" />{tierError}
-              </p>
-            )}
-            <button className="btn-primary btn-sm mt-3" disabled={busy || !!tierError} onClick={saveTiers}>Save breaks</button>
-          </div>
+              <button className="btn-ghost btn-sm" disabled={busy} onClick={() => saveDetails()}>Save base price</button>
 
-          <div className="card p-3.5">
-            <p className="font-bold text-[13.5px]">Example price</p>
-            <div className="mt-2.5 flex flex-wrap items-end gap-2">
-              <label className="w-28"><span className="label block mb-1">Quantity</span>
-                <input className="field tnum" type="number" min="1" value={quoteQty} onChange={(e) => setQuoteQty(Number(e.target.value) || 1)} /></label>
-              <label className="flex-1 min-w-[140px]"><span className="label block mb-1">Size / option</span>
-                <select className="field" value={quoteVariant} onChange={(e) => setQuoteVariant(e.target.value)}>
-                  <option value="">— none —</option>
-                  {variants.filter((v) => v.label).map((v) => <option key={v.id || v.label} value={v.label}>{v.label}</option>)}
-                </select></label>
+              <div className="card p-3.5">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <p className="font-bold text-[13.5px]">Quantity breaks</p>
+                    <p className="text-[12px] text-ink-500">The highest break at or below the order quantity wins.</p>
+                  </div>
+                  <button className="btn-ghost btn-sm" onClick={addTier}><Plus size={14} /> Add break</button>
+                </div>
+                <div className="mt-3 space-y-2">
+                  {tiers.length === 0 && <p className="text-[13px] text-ink-500">No breaks — every quantity pays the base price.</p>}
+                  {tiers.map((t, i) => (
+                    <div key={i} className="flex items-end gap-2">
+                      <label className="flex-1"><span className="label block mb-1">Min qty</span>
+                        <input className="field tnum" type="number" min="1" value={numOrEmpty(t.min_qty)} onChange={(e) => setTier(i, 'min_qty', e.target.value)} /></label>
+                      <label className="flex-1"><span className="label block mb-1">Unit price</span>
+                        <input className="field tnum" type="number" step="0.01" value={numOrEmpty(t.unit_price)} onChange={(e) => setTier(i, 'unit_price', e.target.value)} /></label>
+                      <button className="btn-ghost btn-sm text-dpred mb-[1px]" aria-label={`Remove break ${i + 1}`}
+                        onClick={() => setTiers((list) => list.filter((_, j) => j !== i))}><Trash2 size={14} /></button>
+                    </div>
+                  ))}
+                </div>
+                {tierError && (
+                  <p className="mt-2.5 flex items-start gap-1.5 text-[12.5px] font-semibold text-[#A5121F]">
+                    <AlertTriangle size={14} className="mt-[1px] shrink-0" />{tierError}
+                  </p>
+                )}
+                <button className="btn-primary btn-sm mt-3" disabled={busy || !!tierError} onClick={saveTiers}>Save breaks</button>
+              </div>
+
+              <div className="card p-3.5">
+                <p className="font-bold text-[13.5px]">Example price</p>
+                <div className="mt-2.5 flex flex-wrap items-end gap-2">
+                  <label className="w-28"><span className="label block mb-1">Quantity</span>
+                    <input className="field tnum" type="number" min="1" value={quoteQty} onChange={(e) => setQuoteQty(Number(e.target.value) || 1)} /></label>
+                  <label className="flex-1 min-w-[140px]"><span className="label block mb-1">Size / option</span>
+                    <select className="field" value={quoteVariant} onChange={(e) => setQuoteVariant(e.target.value)}>
+                      <option value="">— none —</option>
+                      {variants.filter((v) => v.label).map((v) => <option key={v.id || v.label} value={v.label}>{v.label}</option>)}
+                    </select></label>
+                </div>
+                {quote ? (
+                  <dl className="mt-3 grid grid-cols-2 gap-y-1.5 text-[13px]">
+                    <dt className="text-ink-500">Unit price</dt><dd className="text-right font-bold tnum">{money(quote.unit_price)}</dd>
+                    {quote.tier_applied && (<><dt className="text-ink-500">Break applied</dt><dd className="text-right tnum">{quote.tier_applied.min_qty}+ @ {money(quote.tier_applied.unit_price)}</dd></>)}
+                    {quote.design_fee > 0 && (<><dt className="text-ink-500">Design service</dt><dd className="text-right tnum">{money(quote.design_fee)}</dd></>)}
+                    <dt className="text-ink-500">Subtotal</dt><dd className="text-right font-bold tnum">{money(quote.subtotal)}</dd>
+                    <dt className="text-ink-500">With tax</dt><dd className="text-right tnum">{money(quote.total)}</dd>
+                  </dl>
+                ) : <p className="mt-3 text-[13px] text-ink-500">Save the product to see live pricing.</p>}
+                {quote?.below_min_qty && (
+                  <p className="mt-2 text-[12.5px] font-semibold text-[#7A6A00]">Below the {f.min_qty} piece minimum — the website will block this quantity.</p>
+                )}
+              </div>
+            </>
+          )}
+
+          {mode === 'flat_option' && (
+            <div className="card p-3.5">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <p className="font-bold text-[13.5px]">Flat-price options</p>
+                  <p className="text-[12px] text-ink-500">Each option has one absolute price. Quantity multiplies it.</p>
+                </div>
+                <button className="btn-ghost btn-sm" onClick={addOption}><Plus size={14} /> Add option</button>
+              </div>
+              <Field label="Unit label" hint='e.g. "per sheet" — shown next to the price and multiplied by quantity'>
+                <input className="field" value={f.unit_label} onChange={(e) => set('unit_label', e.target.value)} placeholder="per sheet" />
+              </Field>
+              <div className="mt-3 space-y-2">
+                {options.length === 0 && <p className="text-[13px] text-ink-500">No options yet.</p>}
+                {options.map((o, i) => (
+                  <div key={i} className="rounded-lg border border-ink-100 p-2.5 sm:border-0 sm:p-0">
+                    <div className="grid grid-cols-2 gap-2 sm:flex sm:items-end">
+                      <label className="col-span-2 sm:flex-[2]"><span className="label block mb-1">Label</span>
+                        <input className="field" value={o.label} onChange={(e) => setOption(i, 'label', e.target.value)} placeholder='e.g. "250 cards"' /></label>
+                      <label className="sm:flex-1"><span className="label block mb-1">Price</span>
+                        <input className="field tnum" type="number" step="0.01" value={numOrEmpty(o.price)} onChange={(e) => setOption(i, 'price', e.target.value)} /></label>
+                      <label className="sm:flex-1"><span className="label block mb-1">SKU suffix</span>
+                        <input className="field" value={o.sku_suffix || ''} onChange={(e) => setOption(i, 'sku_suffix', e.target.value)} /></label>
+                      <button className="col-span-2 sm:col-span-1 btn-ghost btn-sm text-dpred sm:mb-[1px] justify-self-start" aria-label={`Remove option ${i + 1}`}
+                        onClick={() => setOptions((list) => list.filter((_, j) => j !== i))}><Trash2 size={14} /> <span className="sm:hidden">Remove</span></button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <button className="btn-primary btn-sm mt-3" disabled={busy} onClick={saveOptions}>Save options</button>
             </div>
-            {quote ? (
-              <dl className="mt-3 grid grid-cols-2 gap-y-1.5 text-[13px]">
-                <dt className="text-ink-500">Unit price</dt><dd className="text-right font-bold tnum">{money(quote.unit_price)}</dd>
-                {quote.tier_applied && (<><dt className="text-ink-500">Break applied</dt><dd className="text-right tnum">{quote.tier_applied.min_qty}+ @ {money(quote.tier_applied.unit_price)}</dd></>)}
-                {quote.design_fee > 0 && (<><dt className="text-ink-500">Design service</dt><dd className="text-right tnum">{money(quote.design_fee)}</dd></>)}
-                <dt className="text-ink-500">Subtotal</dt><dd className="text-right font-bold tnum">{money(quote.subtotal)}</dd>
-                <dt className="text-ink-500">With tax</dt><dd className="text-right tnum">{money(quote.total)}</dd>
-              </dl>
-            ) : <p className="mt-3 text-[13px] text-ink-500">Save the product to see live pricing.</p>}
-            {quote?.below_min_qty && (
-              <p className="mt-2 text-[12.5px] font-semibold text-[#7A6A00]">Below the {f.min_qty} piece minimum — the website will block this quantity.</p>
-            )}
-          </div>
+          )}
+
+          {mode === 'sqft' && (
+            <>
+              <div className="card p-3.5">
+                <p className="font-bold text-[13.5px]">Square footage defaults</p>
+                <p className="text-[12px] text-ink-500 mt-0.5">Used when no per-material rate is set below. Price = exact sqft × rate × (double-sided ? multiplier : 1) × qty, floored at the minimum.</p>
+                <div className="grid sm:grid-cols-3 gap-3 mt-2.5">
+                  <Field label="Rate per sqft"><input className="field tnum" type="number" step="0.01" value={f.rate_per_sqft} onChange={(e) => set('rate_per_sqft', e.target.value)} /></Field>
+                  <Field label="Minimum sqft"><input className="field tnum" type="number" step="0.01" value={f.minimum_sqft} onChange={(e) => set('minimum_sqft', e.target.value)} /></Field>
+                  <Field label="Double-sided multiplier"><input className="field tnum" type="number" step="0.01" value={f.double_sided_multiplier} onChange={(e) => set('double_sided_multiplier', e.target.value)} /></Field>
+                </div>
+                <button className="btn-ghost btn-sm mt-2" disabled={busy} onClick={() => saveDetails()}>Save defaults</button>
+              </div>
+
+              <div className="card p-3.5">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <p className="font-bold text-[13.5px]">Materials</p>
+                    <p className="text-[12px] text-ink-500">Optional — each material can have its own rate and double-sided permission (e.g. 13oz blocked, 18oz allowed).</p>
+                  </div>
+                  <button className="btn-ghost btn-sm" onClick={addMaterial}><Plus size={14} /> Add material</button>
+                </div>
+                <div className="mt-3 space-y-2">
+                  {materials.length === 0 && <p className="text-[13px] text-ink-500">No materials — the default rate above applies to every order.</p>}
+                  {materials.map((m, i) => (
+                    <div key={i} className="rounded-lg border border-ink-100 p-2.5 sm:border-0 sm:p-0">
+                      <div className="grid grid-cols-2 gap-2 sm:flex sm:items-end">
+                        <label className="col-span-2 sm:flex-[2]"><span className="label block mb-1">Label</span>
+                          <input className="field" value={m.label} onChange={(e) => setMaterial(i, 'label', e.target.value)} placeholder="e.g. 13oz vinyl" /></label>
+                        <label className="sm:flex-1"><span className="label block mb-1">Rate / sqft</span>
+                          <input className="field tnum" type="number" step="0.01" value={numOrEmpty(m.rate_per_sqft)} onChange={(e) => setMaterial(i, 'rate_per_sqft', e.target.value)} /></label>
+                        <label className="flex items-center gap-1.5 sm:pb-2.5 text-[12.5px] font-semibold self-end">
+                          <input type="checkbox" className="h-4 w-4 accent-[#1F2328] shrink-0" checked={!!m.allows_double_sided} onChange={(e) => setMaterial(i, 'allows_double_sided', e.target.checked ? 1 : 0)} />
+                          <span>Double-sided OK</span>
+                        </label>
+                        <button className="col-span-2 sm:col-span-1 btn-ghost btn-sm text-dpred sm:mb-[1px] justify-self-start" aria-label={`Remove material ${i + 1}`}
+                          onClick={() => setMaterials((list) => list.filter((_, j) => j !== i))}><Trash2 size={14} /> <span className="sm:hidden">Remove</span></button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <button className="btn-primary btn-sm mt-3" disabled={busy} onClick={saveMaterials}>Save materials</button>
+              </div>
+            </>
+          )}
+
+          {mode === 'matrix' && (
+            <>
+              <div className="card p-3.5">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <p className="font-bold text-[13.5px]">Axes</p>
+                    <p className="text-[12px] text-ink-500">2-4 named axes with ordered values, e.g. Finished size, Parts, Quantity. Quantity values can carry books/forms metadata.</p>
+                  </div>
+                  <button className="btn-ghost btn-sm" onClick={addAxis} disabled={axes.length >= 4}><Plus size={14} /> Add axis</button>
+                </div>
+                <div className="mt-3 space-y-3">
+                  {axes.map((a, ai) => (
+                    <div key={ai} className="rounded-lg border border-ink-100 p-2.5">
+                      <div className="flex items-center gap-2">
+                        <input className="field flex-1" value={a.name} onChange={(e) => setAxisName(ai, e.target.value)} placeholder={`Axis ${ai + 1} name`} />
+                        <button className="btn-ghost btn-sm text-dpred" onClick={() => removeAxis(ai)}><Trash2 size={14} /></button>
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {a.values.map((v: P, vi: number) => (
+                          <span key={vi} className="inline-flex items-center gap-1 rounded-full border border-ink-100 pl-2 pr-1 py-0.5">
+                            <input className="w-28 bg-transparent text-[12.5px] outline-none" value={v.value} onChange={(e) => setAxisValue(ai, vi, e.target.value)} placeholder="value" />
+                            <button aria-label="Remove value" onClick={() => removeAxisValue(ai, vi)} className="text-ink-400 hover:text-dpred"><X size={12} /></button>
+                          </span>
+                        ))}
+                        <button className="text-[12px] font-bold text-ink-500 hover:text-ink" onClick={() => addAxisValue(ai)}>+ value</button>
+                      </div>
+                    </div>
+                  ))}
+                  {axes.length === 0 && <p className="text-[13px] text-ink-500">No axes yet — add at least 2.</p>}
+                </div>
+                <button className="btn-primary btn-sm mt-3" disabled={busy} onClick={saveAxes}>Save axes</button>
+              </div>
+
+              {axes.length >= 2 && (
+                <div className="card p-3.5 overflow-auto">
+                  <p className="font-bold text-[13.5px]">Price grid</p>
+                  <p className="text-[12px] text-ink-500 mb-2">One absolute total price per combination — not a unit price. {axes.reduce((n: number, a: P) => n * (a.values.length || 1), 1)} cells.</p>
+                  <MatrixGrid axes={axes} cells={matrixCells} setCell={setCell} />
+                  <button className="btn-primary btn-sm mt-3" disabled={busy} onClick={saveGrid}>Save price grid</button>
+                </div>
+              )}
+            </>
+          )}
+
+          {(mode === 'matrix' || mode === 'flat_option' || mode === 'sqft') && (
+            <div className="card p-3.5">
+              <p className="font-bold text-[13.5px]">Import pricing</p>
+              <p className="text-[12px] text-ink-500 mt-0.5">Upload a CSV, preview the diff, then commit. Nothing is written until you click Commit.</p>
+              <div className="mt-2.5 flex flex-wrap gap-2">
+                <button className="btn-ghost btn-sm" onClick={downloadTemplate}><Tag size={14} /> Download template CSV</button>
+                <button className="btn-ghost btn-sm" onClick={downloadExport}><Tag size={14} /> Export current pricing to CSV</button>
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <input type="file" accept=".csv,text/csv" onChange={(e) => { setImportFile(e.target.files?.[0] || null); setImportPreview(null); }} className="text-[13px]" />
+                <button className="btn-primary btn-sm" disabled={!importFile || importBusy} onClick={previewImport}>
+                  {importBusy ? <Spinner /> : null} Preview import
+                </button>
+              </div>
+
+              {importPreview && (
+                <div className="mt-3 rounded-lg border border-ink-100 p-3">
+                  <div className="flex flex-wrap gap-4 text-[13px]">
+                    <span><strong className="tnum">{importPreview.diff.new.length}</strong> new</span>
+                    <span><strong className="tnum">{importPreview.diff.changed.length}</strong> changed</span>
+                    <span><strong className="tnum">{importPreview.diff.unchanged.length}</strong> unchanged</span>
+                    <span className={importPreview.diff.errors.length ? 'text-[#A5121F] font-bold' : ''}><strong className="tnum">{importPreview.diff.errors.length}</strong> errors</span>
+                    <span className="text-ink-500">{importPreview.row_count} rows total</span>
+                  </div>
+                  {importPreview.diff.changed.length > 0 && (
+                    <div className="mt-2 max-h-40 overflow-auto text-[12.5px] space-y-1">
+                      {importPreview.diff.changed.map((c: P, i: number) => (
+                        <div key={i} className="flex justify-between gap-2 tnum">
+                          <span className="text-ink-500 truncate">{c.label}</span>
+                          <span>{money(c.old_price ?? c.old_rate)} → <strong>{money(c.new_price ?? c.new_rate)}</strong></span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {importPreview.diff.errors.length > 0 && (
+                    <div className="mt-2 max-h-40 overflow-auto text-[12.5px] space-y-1 text-[#A5121F]">
+                      {importPreview.diff.errors.map((e: P, i: number) => <div key={i}>Row {e.row}: {e.reason}</div>)}
+                    </div>
+                  )}
+                  <button className="btn-primary btn-sm mt-3" disabled={importBusy || importPreview.diff.errors.length === importPreview.row_count} onClick={commitImport}>
+                    {importBusy ? <Spinner /> : null} Commit import
+                  </button>
+                </div>
+              )}
+
+              {imports.length > 0 && (
+                <div className="mt-4">
+                  <p className="label mb-1.5">Recent imports</p>
+                  <div className="space-y-1 text-[12.5px]">
+                    {imports.map((r: P) => (
+                      <div key={r.id} className="flex justify-between gap-2 text-ink-500">
+                        <span className="truncate">{r.filename} · {r.actor}</span>
+                        <span className="tnum">+{r.rows_added} / ~{r.rows_changed} / ={r.rows_unchanged}{r.rows_error ? ` / !${r.rows_error}` : ''} · {new Date(r.created_at).toLocaleDateString()}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 

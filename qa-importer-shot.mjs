@@ -1,0 +1,40 @@
+import { chromium } from 'playwright';
+const BASE = 'http://localhost:5055';
+const OUT = '/home/user/workspace/dakota-prints-admin-os/qa-screens';
+const b = await chromium.launch();
+const p = await b.newPage({ viewport: { width: 375, height: 900 } });
+p.setDefaultTimeout(15000);
+await p.goto(`${BASE}/#/login`, { waitUntil: 'networkidle' });
+await p.fill('input[type="email"]', 'admin@dakotaprints.com');
+await p.fill('input[type="password"]', 'ForgedOS2026!');
+await p.click('button:has-text("Sign in")');
+await p.waitForTimeout(1200);
+await p.goto(`${BASE}/#/products`, { waitUntil: 'networkidle' });
+await p.waitForTimeout(600);
+await p.locator('input.field').first().fill('Stapled Ticket Books — Black');
+await p.waitForTimeout(700);
+const card = p.locator('text=Stapled Ticket Books').first().locator('xpath=ancestor::li[1]');
+await card.waitFor({ state: 'visible', timeout: 10000 });
+await card.locator('button:has-text("Edit")').click();
+await p.waitForTimeout(600);
+await p.locator('button:has-text("Pricing")').first().click();
+await p.waitForTimeout(900);
+const importHeading = p.locator('text=Import pricing').first();
+await importHeading.scrollIntoViewIfNeeded();
+await p.waitForTimeout(400);
+await p.screenshot({ path: `${OUT}/08a-importer-panel-mobile.png` });
+
+// upload a real CSV and preview
+const fileInput = p.locator('input[type="file"]');
+await fileInput.setInputFiles('/home/user/workspace/pricing-source/stapled-ticket-books-bw.csv');
+await p.waitForTimeout(400);
+const previewBtn = p.locator('button:has-text("Preview")');
+await previewBtn.click();
+await p.waitForTimeout(1200);
+await p.screenshot({ path: `${OUT}/08b-importer-preview-mobile.png`, fullPage: false });
+// scroll a bit to catch diff counts + commit button
+await importHeading.scrollIntoViewIfNeeded();
+await p.waitForTimeout(300);
+await p.screenshot({ path: `${OUT}/08c-importer-preview-scrolled-mobile.png` });
+await b.close();
+console.log('done');

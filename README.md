@@ -1,6 +1,6 @@
 # Dakota Prints OS — backend operating system
 
-The private back office for **Dakota Prints** (Williston, SD): screen printing, embroidery,
+The private back office for **Dakota Prints** (Williston, ND): screen printing, embroidery,
 signs, vinyl, blueprints and business print.
 
 This repo is **the OS only** — there is no customer storefront inside it. The root URL is a
@@ -29,6 +29,61 @@ design-service defaults live on Settings.
 Every save stamps `updated_at`, which bumps `/api/public/catalog-version` — so the website can
 poll cheaply and pick changes up immediately.
 
+### Pricing modes
+
+Each product has a `pricing_mode`: the original **`tiered_unit`** (base price + quantity
+breaks + size/dimension variants — unchanged, still what apparel uses), or one of three new
+modes for the real print catalog:
+
+- **`flat_option`** — pick one flat-priced option (Business Cards' 250/500-count, Engineering
+  Drawings' per-sheet size). The Pricing tab becomes a reorderable option list (label, price,
+  optional SKU suffix).
+- **`sqft`** — width × height → square feet × a rate, with an optional list of materials (each
+  with its own rate and its own double-sided permission) and a shop-wide minimum-sqft floor
+  and double-sided multiplier (Vinyl Banners, Large Format Posters).
+- **`matrix`** — up to N axes (Finished size / Parts / Quantity for the four ticket-book
+  products), each with its own ordered list of values, and one price per exact combination of
+  axis values (63 cells for a 3×3×7 matrix). The Pricing tab renders an editable price grid you
+  can either hand-edit or replace wholesale via CSV import.
+
+All four modes are resolved by **one shared server-side function** (`priceLine` in
+`server/pricing.js`), used by both the OS's own price-preview endpoint and the public
+`POST /api/public/quote` / `POST /api/public/orders` endpoints — so the website, the OS admin
+UI, and order intake can never disagree on a price, and the client-submitted price is never
+trusted. Full request/response shapes and the client-side rendering contract (cascading
+dropdowns, the banner calculator) are in **[`API.md`](./API.md) §1a, §5 and §9**.
+
+### CSV pricing importer (matrix products)
+
+Each matrix product's Pricing tab has an **Import CSV** panel: pick a file → **Preview** parses
+it and diffs every row against the current grid **without writing anything** — showing New /
+Changed / Unchanged / Errors counts and a per-row table — then **Commit** writes it in one
+transaction only once you've reviewed the diff. **Download template** gives a CSV pre-filled
+with the product's current axis values in the exact `size,parts,qty_label,books,forms,price`
+shape the importer expects; **Export** downloads the current live grid in the same shape
+(round-trippable). Every commit is recorded in a **Recent imports** log (filename, row counts,
+actor, timestamp) kept per product. These are OS-admin routes under `/api/os/*`
+(session-authenticated, not part of the public storefront contract):
+`POST /api/os/products/:id/pricing-import/preview` (multipart `file`),
+`POST /api/os/products/:id/pricing-import/commit` (`{csv_text, filename}` — re-sends the same
+text the preview parsed so preview and commit can never drift),
+`GET /api/os/products/:id/pricing-import/template`,
+`GET /api/os/products/:id/pricing-export`, `GET /api/os/products/:id/pricing-imports` (last 20
+import log rows).
+
+### Demo data / clearing orders
+
+Demo customers and orders are **opt-in**: set `SEED_DEMO_ORDERS=true` before first boot (fresh
+database) to seed the original ~23 sample South Dakota/Iowa orders for a demo. Default is
+**OFF**, so a fresh production deploy seeds only the real product catalog, staff accounts and
+shop settings — no fake orders/customers mixed into Frank's real data. If demo orders were
+seeded and need to be removed later (or Frank just wants a clean slate before go-live), an
+admin-only **Clear all orders** action is on **Settings** — it requires typing the exact phrase
+`DELETE ALL ORDERS` to confirm, deletes every order (line items/events/files cascade), zeroes
+customer lifetime-spend totals, and leaves customers and the product catalog untouched.
+Endpoint: `POST /api/os/settings/clear-orders` `{ "confirm": "DELETE ALL ORDERS" }` —
+403 for non-admins, 400 if the confirm phrase doesn't match exactly.
+
 ---
 
 ## What's inside
@@ -46,9 +101,13 @@ poll cheaply and pick changes up immediately.
 | **Settings**          | Shop info, tax, rush fee, turnaround, low-stock threshold, message templates, staff accounts, and the **Website integration** panel            |
 | **Job ticket**        | `/#/ticket/:id` — production job ticket + packing slip, both with the Dakota Prints lockup, print-optimised for letter stock                    |
 
-Seed data ships with the app: 15 products, 12 South Dakota / Iowa customers and ~23 orders
-spread across every status, plus tasks, timeline events, messages, notifications and a
-sample inbound-webhook history — so every screen is populated on first login.
+Seed data ships with the app: 23 products (15 original apparel/signage + 8 real Dakota
+Prints print products — ticket books, banners, posters, business cards, engineering
+drawings — priced exactly per `pricing-source/dakota-prints-pricing-source.md`, never
+rounded or recalculated). Demo customers/orders are **opt-in** (see "Demo data / clearing
+orders" above) — when enabled, seeds 12 South Dakota / Iowa customers and ~23 orders spread
+across every status, plus tasks, timeline events, messages, notifications and a sample
+inbound-webhook history.
 
 ---
 
@@ -93,6 +152,7 @@ before a real deploy.
 | `WEBSITE_URL`           | `https://www.dakotaprints.com` | Public site this OS backs (shown in Settings, used for the connection check) |
 | `WEBSITE_ORIGINS`       | `*`                            | Comma-separated CORS allow-list for `/api/public/*`            |
 | `DESIGN_NOTIFY_EMAIL`   | `orders@dakotaprints.com`      | Seeds the design-request notification address                  |
+| `SEED_DEMO_ORDERS`      | `false`                        | Opt-in: seed ~23 sample orders + 12 demo customers on first boot. Leave `false` in production so only the real catalog/staff/settings are seeded. |
 | `STRIPE_SECRET_KEY`     | —                              | Optional, see "Where the real services drop in"                |
 | `RESEND_API_KEY`        | —                              | Optional                                                       |
 | `TWILIO_*`              | —                              | Optional                                                       |
@@ -167,16 +227,21 @@ tags the order and raises a design-request notification.
 ### 2. Catalog sync — the OS owns the catalog
 
 ```
-GET /api/public/products              → { count, catalog_version, synced_at, products: [...] }
-GET /api/public/products/:slug        → one product (404 when unpublished)
-GET /api/public/catalog-version       → cheap { version, etag, published_count, product_count }
-GET /api/public/settings              → shop profile, tax, rush fee, design-service defaults
+GET  /api/public/products              → { count, catalog_version, synced_at, products: [...] }
+GET  /api/public/products/:slug        → one product (404 when unpublished)
+GET  /api/public/catalog-version       → cheap { version, etag, published_count, product_count }
+GET  /api/public/settings              → shop profile, tax, rush fee, design-service defaults
+POST /api/public/quote                 → { slug|sku, qty, selection } → server-priced { unit_price, line_total, meta }
 ```
 
 Each product carries `slug`, `badge`, short + long descriptions, `images[]`, `variants[]`
-(with a **resolved unit price**), `price_tiers[]`, `design_service {enabled, fee, help_text}`
-and `allow_artwork_upload`. Unpublishing a product on the OS **Products** page removes it from
-this feed and 404s its slug on the next request — no deploy needed.
+(with a **resolved unit price**), `price_tiers[]`, `design_service {enabled, fee, help_text}`,
+`allow_artwork_upload`, `pricing_mode`, `unit_label`, `fine_print` and — for the three new
+pricing modes — a `pricing` object (options / materials+rate / axes+cells). Unpublishing a
+product on the OS **Products** page removes it from this feed and 404s its slug on the next
+request — no deploy needed. `POST /api/public/quote` resolves a price for any pricing mode
+without creating an order — use it to show a live price as the customer fills in a picker or
+calculator, then submit the same `selection` shape as `items[].selection` on `/orders`.
 
 **The full contract, with exact JSON shapes and the pricing-resolution rules, is in
 [`API.md`](./API.md).** That file is the handoff document for the website.

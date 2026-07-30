@@ -484,6 +484,7 @@ router.put('/products/:id/materials', (req, res) => {
 
 // ------------------------------------------------------------------ matrix
 router.get('/products/:id/axes', (req, res) => res.json(axesFor(Number(req.params.id))));
+router.get('/products/:id/matrix-cells', (req, res) => res.json(matrixCellsFor(Number(req.params.id))));
 
 /**
  * Full replace of axes + values + cells in one shot (the editor/importer
