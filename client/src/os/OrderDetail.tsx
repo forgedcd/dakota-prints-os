@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowRight, Printer, Send, Truck, Zap, CheckCircle2, Trash2 } from 'lucide-react';
-import { del, fullDate, get, money, patch, post, dayDate, STATUS_FLOW, STATUS_LABEL, STATUS_TONE, PAY_TONE } from '../lib/api';
+import { ArrowRight, Printer, Send, Truck, Zap, CheckCircle2, Trash2, Palette, Download, Paperclip } from 'lucide-react';
+import { asset, del, fullDate, get, money, patch, post, dayDate, STATUS_FLOW, STATUS_LABEL, STATUS_TONE, PAY_TONE } from '../lib/api';
 import { Badge, ConfirmDialog, Field, Skeleton, useToast } from '../components/kit';
 import { cleanLabel } from '../lib/pricing';
 
@@ -26,6 +26,54 @@ export function SpecTable({ spec }: { spec: Record<string, any> }) {
         </div>
       ))}
     </dl>
+  );
+}
+
+const KIND_TONE: Record<string, string> = {
+  artwork: 'bg-[#00AEEF]/12 text-[#0475A0] border-[#00AEEF]/30',
+  logo: 'bg-[#EC008C]/10 text-[#B00A6C] border-[#EC008C]/25',
+  reference: 'bg-[#FFF200]/25 text-[#7A6A00] border-[#D6CB00]/50',
+};
+
+const isImage = (u = '') => /\.(png|jpe?g|webp|gif|avif|svg)$/i.test(u.split('?')[0]);
+
+/** Thumbnail grid of everything the customer attached to a line item. */
+export function FileGrid({ files }: { files: any[] }) {
+  if (!files?.length) return null;
+  return (
+    <div className="mt-2.5">
+      <p className="label flex items-center gap-1.5"><Paperclip size={12} /> Customer files ({files.length})</p>
+      <ul className="mt-1.5 grid grid-cols-2 sm:grid-cols-3 gap-2">
+        {files.map((f) => (
+          <li key={f.id || f.url} className="rounded-lg border border-ink-100 overflow-hidden bg-white">
+            <a href={asset(f.url)} target="_blank" rel="noreferrer" className="block">
+              <div className="h-24 bg-paper-100 grid place-items-center overflow-hidden">
+                {isImage(f.url)
+                  ? <img src={asset(f.url)} alt={f.filename || 'Customer file'} className="h-full w-full object-cover" loading="lazy"
+                      onError={(e) => {
+                        const el = e.currentTarget;
+                        el.style.display = 'none';
+                        const fallback = el.nextElementSibling as HTMLElement | null;
+                        if (fallback) fallback.style.display = 'flex';
+                      }} />
+                  : null}
+                <span style={{ display: isImage(f.url) ? 'none' : 'flex' }}
+                  className="h-full w-full items-center justify-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-ink-500">
+                  <Paperclip size={12} />{((f.filename || f.url).split('.').pop() || 'file').slice(0, 6)}
+                </span>
+              </div>
+            </a>
+            <div className="p-2 space-y-1.5">
+              <Badge tone={KIND_TONE[f.kind] || ''}>{f.kind || 'file'}</Badge>
+              <p className="text-[11.5px] text-ink-500 truncate" title={f.filename || f.url}>{f.filename || f.url.split('/').pop()}</p>
+              <a className="btn-ghost btn-sm w-full justify-center" href={asset(f.url)} download target="_blank" rel="noreferrer">
+                <Download size={12} /> Download
+              </a>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
@@ -69,6 +117,9 @@ export default function OrderDetail({ id, onChanged, onDeleted }: { id: number; 
             <Badge tone={PAY_TONE[o.payment_status]}>{o.payment_status}</Badge>
             <Badge>{o.source}</Badge>
             {o.rush ? <Badge tone="bg-[#E11D2E]/8 text-[#A5121F] border-[#E11D2E]/25">Rush</Badge> : null}
+            {o.items?.some((i: any) => i.design_service) ? (
+              <Badge tone="bg-[#EC008C]/10 text-[#B00A6C] border-[#EC008C]/25"><Palette size={11} className="mr-1" />Design requested</Badge>
+            ) : null}
           </div>
         </div>
 
@@ -127,7 +178,18 @@ export default function OrderDetail({ id, onChanged, onDeleted }: { id: number; 
                 <p className="font-bold text-[13.5px]">{it.qty} × {it.name}</p>
                 <p className="font-bold tnum shrink-0">{money(it.line_total)}</p>
               </div>
+              {it.design_service ? (
+                <div className="mt-2 rounded-lg border border-[#EC008C]/25 bg-[#EC008C]/[0.045] p-3">
+                  <p className="flex items-center gap-1.5 text-[12px] font-bold uppercase tracking-[0.08em] text-[#B00A6C]">
+                    <Palette size={13} /> Design it for me
+                  </p>
+                  <p className="mt-1.5 text-[13px] whitespace-pre-wrap">
+                    {it.design_brief || <span className="text-ink-500">Customer left the brief blank — call before starting art.</span>}
+                  </p>
+                </div>
+              ) : null}
               <div className="mt-2"><SpecTable spec={it.spec || {}} /></div>
+              <FileGrid files={it.files || []} />
             </li>
           ))}
         </ul>

@@ -31,6 +31,10 @@ services:
         sync: false          # shared token the website sends as x-webhook-token
       - key: WEBSITE_URL
         value: https://www.dakotaprints.com   # public site this OS backs
+      - key: WEBSITE_ORIGINS
+        value: https://www.dakotaprints.com,https://dakotaprints.com   # CORS allow-list for /api/public/*
+      - key: DESIGN_NOTIFY_EMAIL
+        value: orders@dakotaprints.com        # design-request notifications
       - key: RESEND_API_KEY
         sync: false          # optional — transactional email
       - key: STRIPE_SECRET_KEY

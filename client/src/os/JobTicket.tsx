@@ -107,6 +107,22 @@ export default function JobTicket() {
                   ))}
                 </ul>
               )}
+              {it.design_service ? (
+                <div className="mt-1.5 border-l-2 border-[#EC008C] pl-2">
+                  <p className="uppercase tracking-[0.08em] text-[10px] font-bold text-[#B00A6C]">Design it for me — brief</p>
+                  <p className="text-[12px] whitespace-pre-line">{it.design_brief || 'No brief supplied — call the customer before starting art.'}</p>
+                </div>
+              ) : null}
+              {it.files?.length ? (
+                <ul className="mt-1.5 text-ink-500">
+                  <li className="uppercase tracking-[0.08em] text-[10px] font-bold text-ink-300">Attached files</li>
+                  {it.files.map((f: any) => (
+                    <li key={f.id || f.url} className="font-mono text-[11px]">
+                      {f.kind}: {f.filename || f.url.split('/').pop()}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
             </td>
             <td className="py-2.5 text-right tnum font-bold">{it.qty}</td>
             {withPrice ? <>
@@ -150,6 +166,19 @@ export default function JobTicket() {
           <Meta />
           <Lines withPrice />
           <Totals />
+          {(o.items || []).some((i: any) => i.design_service) && (
+            <div className="mt-5 border-2 border-[#EC008C] rounded-lg p-3.5">
+              <p className="label text-[#B00A6C]">Art department first — customer requested a design</p>
+              <ul className="mt-1.5 space-y-1 text-[12.5px]">
+                {(o.items || []).filter((i: any) => i.design_service).map((i: any) => (
+                  <li key={i.id}><strong>{i.name}:</strong> {i.design_brief || 'no brief supplied'}</li>
+                ))}
+              </ul>
+              <p className="mt-1.5 text-[11.5px] text-ink-500">
+                Files attached: {(o.items || []).reduce((n: number, i: any) => n + (i.files?.length || 0), 0)}
+              </p>
+            </div>
+          )}
           {o.notes && (
             <div className="mt-5 border border-ink-100 rounded-lg p-3.5">
               <p className="label">Shop notes</p>

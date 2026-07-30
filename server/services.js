@@ -66,7 +66,11 @@ export function getOrderFull(id) {
   return {
     ...order,
     customer: order.customer_id ? db.prepare('SELECT * FROM customers WHERE id = ?').get(order.customer_id) : null,
-    items: db.prepare('SELECT * FROM order_items WHERE order_id = ? ORDER BY id').all(id).map((i) => ({ ...i, spec: safeJson(i.spec_json) })),
+    items: db.prepare('SELECT * FROM order_items WHERE order_id = ? ORDER BY id').all(id).map((i) => ({
+      ...i,
+      spec: safeJson(i.spec_json),
+      files: db.prepare('SELECT id,url,filename,kind,created_at FROM order_item_files WHERE order_item_id=? ORDER BY id').all(i.id),
+    })),
     events: db.prepare('SELECT * FROM order_events WHERE order_id = ? ORDER BY datetime(created_at) DESC, id DESC').all(id),
     tasks: db.prepare('SELECT * FROM tasks WHERE order_id = ? ORDER BY id').all(id),
     messages: db.prepare('SELECT * FROM messages WHERE order_id = ? ORDER BY datetime(created_at) DESC').all(id),

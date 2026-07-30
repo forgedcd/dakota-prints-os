@@ -3,6 +3,7 @@ import Database from 'better-sqlite3';
 import fs from 'node:fs';
 import path from 'node:path';
 import bcrypt from 'bcryptjs';
+import { seedCatalog } from './catalog-seed.js';
 
 const DB_PATH = process.env.DATABASE_PATH || './data/dakota.db';
 export const UPLOAD_DIR = process.env.UPLOAD_DIR || './data/uploads';
@@ -138,12 +139,144 @@ CREATE TABLE IF NOT EXISTS webhook_log (
 );
 `);
 
+// ---------------------------------------------------------------------------
+// MIGRATIONS — additive and idempotent so existing databases (and the seeded
+// demo data) keep working. Everything below runs on every boot.
+// ---------------------------------------------------------------------------
+function columns(table) {
+  return db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
+}
+function addColumn(table, name, ddl) {
+  if (!columns(table).includes(name)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${ddl}`);
+}
+
+export function slugify(s, fallback = 'product') {
+  const base = String(s || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 70);
+  return base || fallback;
+}
+
+/** Unique slug helper — appends -2, -3 … when the slug is taken. */
+export function uniqueSlug(name, ignoreId = null) {
+  const base = slugify(name);
+  let candidate = base;
+  let n = 2;
+  for (;;) {
+    const row = db.prepare('SELECT id FROM products WHERE slug = ?').get(candidate);
+    if (!row || row.id === Number(ignoreId)) return candidate;
+    candidate = `${base}-${n++}`;
+  }
+}
+
+export function migrate() {
+  // --- products: website-facing catalog columns
+  addColumn('products', 'published', 'INTEGER NOT NULL DEFAULT 1');
+  addColumn('products', 'website_order', 'INTEGER');
+  addColumn('products', 'short_description', 'TEXT');
+  addColumn('products', 'long_description', 'TEXT');
+  addColumn('products', 'design_service_enabled', 'INTEGER NOT NULL DEFAULT 0');
+  addColumn('products', 'design_service_fee', 'REAL NOT NULL DEFAULT 0');
+  addColumn('products', 'design_service_help', 'TEXT');
+  addColumn('products', 'allow_artwork_upload', 'INTEGER NOT NULL DEFAULT 1');
+  addColumn('products', 'slug', 'TEXT');
+  addColumn('products', 'badge', 'TEXT');
+  addColumn('products', 'updated_at', 'TEXT');
+
+  // --- orders: design-service tag
+  addColumn('orders', 'design_service', 'INTEGER NOT NULL DEFAULT 0');
+
+  // --- order_items: design service + brief
+  addColumn('order_items', 'design_service', 'INTEGER NOT NULL DEFAULT 0');
+  addColumn('order_items', 'design_brief', 'TEXT');
+  addColumn('order_items', 'variant_label', 'TEXT');
+
+  db.exec(`
+  CREATE TABLE IF NOT EXISTS product_images (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    url TEXT NOT NULL,
+    alt TEXT,
+    is_primary INTEGER NOT NULL DEFAULT 0,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+  );
+  CREATE INDEX IF NOT EXISTS idx_product_images_product ON product_images(product_id);
+
+  CREATE TABLE IF NOT EXISTS product_variants (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    label TEXT NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'size',      -- size | dimension | option
+    price REAL,                              -- absolute unit price for this variant
+    upcharge REAL,                           -- added to the resolved base price
+    sku_suffix TEXT,
+    stock INTEGER,
+    active INTEGER NOT NULL DEFAULT 1,
+    sort_order INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE INDEX IF NOT EXISTS idx_product_variants_product ON product_variants(product_id);
+
+  CREATE TABLE IF NOT EXISTS price_tiers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    min_qty INTEGER NOT NULL,
+    unit_price REAL NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_price_tiers_product ON price_tiers(product_id);
+
+  CREATE TABLE IF NOT EXISTS order_item_files (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_item_id INTEGER NOT NULL REFERENCES order_items(id) ON DELETE CASCADE,
+    url TEXT NOT NULL,
+    filename TEXT,
+    kind TEXT NOT NULL DEFAULT 'artwork',   -- artwork | logo | reference
+    created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+  );
+  CREATE INDEX IF NOT EXISTS idx_order_item_files_item ON order_item_files(order_item_id);
+  `);
+
+  // --- backfill slugs, sort order, updated_at
+  const needSlug = db.prepare("SELECT id, name FROM products WHERE slug IS NULL OR slug = ''").all();
+  const setSlug = db.prepare('UPDATE products SET slug=? WHERE id=?');
+  for (const p of needSlug) setSlug.run(uniqueSlug(p.name, p.id), p.id);
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_products_slug ON products(slug)');
+
+  db.exec('UPDATE products SET website_order = id WHERE website_order IS NULL');
+  db.exec("UPDATE products SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL");
+
+  // --- migrate the legacy single image_url into product_images as the primary
+  const orphans = db.prepare(`SELECT p.id, p.image_url, p.name FROM products p
+    WHERE p.image_url IS NOT NULL AND p.image_url != ''
+      AND NOT EXISTS (SELECT 1 FROM product_images i WHERE i.product_id = p.id)`).all();
+  const insImg = db.prepare('INSERT INTO product_images (product_id,url,alt,is_primary,sort_order) VALUES (?,?,?,1,0)');
+  for (const p of orphans) insImg.run(p.id, p.image_url, p.name);
+}
+migrate();
+
 export function getSetting(key, fallback = null) {
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
   return row ? row.value : fallback;
 }
 export function setSetting(key, value) {
   db.prepare('INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run(key, String(value));
+}
+
+/**
+ * Monotonic catalog revision. `updated_at` only has one-second resolution, so
+ * two edits inside the same second would otherwise produce the same public
+ * cache key. Every catalog write bumps this, and catalogVersion() folds it into
+ * the hash, so the website always sees a fresh version after any change.
+ */
+export function bumpCatalogRev() {
+  const next = Number(getSetting('catalog_rev', '0') || 0) + 1;
+  setSetting('catalog_rev', next);
+  return next;
+}
+export function catalogRev() {
+  return Number(getSetting('catalog_rev', '0') || 0);
 }
 
 export function orderNumber(date = new Date()) {
@@ -319,6 +452,10 @@ export function seed() {
     notify_email: 'orders@dakotaprints.com',
     low_stock_threshold: '48',
     webhook_token: process.env.OS_WEBHOOK_TOKEN || 'dakota-website-2026',
+    design_service_enabled_default: '1',
+    design_service_fee: '45',
+    design_service_help: "Tell us what you need and our art department will build it. Include colors, wording, any logo files you have, and a few words about the look you are after — we will email a proof for approval within one business day.",
+    design_notify_email: process.env.DESIGN_NOTIFY_EMAIL || process.env.NOTIFY_EMAIL || 'orders@dakotaprints.com',
     website_url: process.env.WEBSITE_URL || 'https://www.dakotaprints.com',
     tpl_order_received: 'Thanks {{contact_name}} — we received order {{order_number}}. Total {{total}}. We will have a proof to you within one business day.',
     tpl_proof_ready: 'Hi {{contact_name}}, your proof for {{order_number}} is ready. Reply APPROVE and we will put it on the press.',
@@ -447,4 +584,9 @@ export function seed() {
     });
     ins.run('POST /api/public/orders', 401, null, '45.83.220.11', 'invalid x-webhook-token', iso(daysAgo(3)));
   }
+
+  // Re-run the additive migration now that products exist (slugs, sort order and
+  // the legacy image_url → product_images move), then backfill catalog content.
+  migrate();
+  seedCatalog();
 }

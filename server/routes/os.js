@@ -10,6 +10,8 @@ import {
   recalcCustomerSpend, renderTemplate, safeJson, STATUS_FLOW, STATUS_LABEL,
 } from '../services.js';
 import { renderEmail } from '../emails.js';
+import catalogAdmin from './catalog-admin.js';
+import { catalogVersion } from '../catalog.js';
 
 const router = express.Router();
 
@@ -204,54 +206,9 @@ router.delete('/customers/:id', (req, res) => {
 });
 
 // ------------------------------------------------------------------- products
-router.get('/products', (req, res) => {
-  const rows = db.prepare('SELECT * FROM products ORDER BY category, name').all();
-  const threshold = Number(getSetting('low_stock_threshold') || 48);
-  res.json(rows.map((p) => ({ ...p, options: safeJson(p.options_json) || {}, low_stock: p.stock !== null && p.stock <= threshold })));
-});
-
-function productPayload(b) {
-  return {
-    sku: b.sku, name: b.name, category: b.category, description: b.description || '',
-    base_price: Number(b.base_price) || 0, unit: b.unit || 'each',
-    min_qty: Number(b.min_qty) || 1, turnaround_days: Number(b.turnaround_days) || 7,
-    image_url: b.image_url || null, stock: b.stock === '' || b.stock === null || b.stock === undefined ? null : Number(b.stock),
-    active: b.active === false || b.active === 0 || b.active === '0' ? 0 : 1,
-    options_json: typeof b.options_json === 'string' ? b.options_json : JSON.stringify(b.options || {}),
-  };
-}
-
-router.post('/products', (req, res) => {
-  const p = productPayload(req.body || {});
-  if (!p.sku || !p.name) return res.status(400).json({ error: 'sku and name required' });
-  const r = db.prepare(`INSERT INTO products (sku,name,category,description,base_price,unit,min_qty,turnaround_days,image_url,stock,active,options_json)
-    VALUES (@sku,@name,@category,@description,@base_price,@unit,@min_qty,@turnaround_days,@image_url,@stock,@active,@options_json)`).run(p);
-  res.status(201).json(db.prepare('SELECT * FROM products WHERE id=?').get(r.lastInsertRowid));
-});
-
-router.patch('/products/:id', (req, res) => {
-  const existing = db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id);
-  if (!existing) return res.status(404).json({ error: 'Product not found' });
-  const p = productPayload({ ...existing, ...req.body });
-  db.prepare(`UPDATE products SET sku=@sku,name=@name,category=@category,description=@description,base_price=@base_price,unit=@unit,
-    min_qty=@min_qty,turnaround_days=@turnaround_days,image_url=@image_url,stock=@stock,active=@active,options_json=@options_json WHERE id=@id`)
-    .run({ ...p, id: Number(req.params.id) });
-  const threshold = Number(getSetting('low_stock_threshold') || 48);
-  if (p.stock !== null && p.stock <= threshold) {
-    const dupe = db.prepare("SELECT id FROM tasks WHERE title=? AND status='open'").get(`Restock blanks: ${p.name}`);
-    if (!dupe) {
-      db.prepare('INSERT INTO tasks (order_id,title,type,status,due_date,assigned_to) VALUES (NULL,?,?,?,?,?)')
-        .run(`Restock blanks: ${p.name}`, 'followup', 'open', new Date(Date.now() + 2 * 864e5).toISOString().slice(0, 10), req.user.name);
-      notify('low_stock', `Blank stock low — ${p.name}`, `${p.stock} on hand, at or below the ${threshold} reorder point.`, null);
-    }
-  }
-  res.json(db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id));
-});
-
-router.delete('/products/:id', (req, res) => {
-  db.prepare('DELETE FROM products WHERE id=?').run(req.params.id);
-  res.json({ deleted: true });
-});
+// Full catalog management (publish toggles, ordering, images, variants, price
+// tiers, design service) lives in routes/catalog-admin.js.
+router.use(catalogAdmin);
 
 router.post('/uploads', upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
@@ -350,7 +307,9 @@ router.get('/reports/export.csv', (req, res) => {
 
 // ------------------------------------------------------------------- settings
 const SETTING_KEYS = ['shop_name', 'shop_tagline', 'shop_phone', 'shop_email', 'shop_address', 'tax_rate', 'rush_fee_pct',
-  'default_turnaround', 'notify_email', 'low_stock_threshold', 'website_url', 'tpl_order_received', 'tpl_proof_ready', 'tpl_deposit_reminder',
+  'default_turnaround', 'notify_email', 'low_stock_threshold', 'website_url',
+  'design_service_enabled_default', 'design_service_fee', 'design_service_help', 'design_notify_email',
+  'tpl_order_received', 'tpl_proof_ready', 'tpl_deposit_reminder',
   'tpl_ready_pickup', 'tpl_shipped', 'tpl_reorder_followup'];
 
 router.get('/settings', (req, res) => {
@@ -379,10 +338,28 @@ router.get('/webhooks', (req, res) => {
       SUM(CASE WHEN status >= 400 THEN 1 ELSE 0 END) failed,
       COUNT(*) total FROM webhook_log`).get();
   const last = db.prepare("SELECT created_at FROM webhook_log WHERE endpoint LIKE 'POST%orders' ORDER BY id DESC LIMIT 1").get();
+  const origin = `${req.protocol}://${req.get('host')}`;
+  const sample = db.prepare('SELECT slug FROM products WHERE published=1 AND active=1 ORDER BY COALESCE(website_order,9999) LIMIT 1').get();
+  const cat = catalogVersion();
   res.json({
-    webhook_url: `${req.protocol}://${req.get('host')}/api/public/orders`,
-    products_url: `${req.protocol}://${req.get('host')}/api/public/products`,
-    track_url: `${req.protocol}://${req.get('host')}/api/public/track/DP-00000000-0000`,
+    webhook_url: `${origin}/api/public/orders`,
+    products_url: `${origin}/api/public/products`,
+    track_url: `${origin}/api/public/track/DP-00000000-0000`,
+    endpoints: [
+      { method: 'GET', label: 'Catalog (published only)', url: `${origin}/api/public/products` },
+      { method: 'GET', label: 'Single product by slug', url: `${origin}/api/public/products/${sample?.slug || 'product-slug'}` },
+      { method: 'GET', label: 'Catalog version / cache key', url: `${origin}/api/public/catalog-version` },
+      { method: 'GET', label: 'Shop settings', url: `${origin}/api/public/settings` },
+      { method: 'POST', label: 'Order intake (token)', url: `${origin}/api/public/orders` },
+      { method: 'POST', label: 'File uploads (token, multipart)', url: `${origin}/api/public/uploads` },
+      { method: 'GET', label: 'Order tracking', url: `${origin}/api/public/track/DP-00000000-0000` },
+    ],
+    catalog: {
+      published: cat.published_count, total: cat.product_count,
+      version: cat.version, updated_at: cat.updated_at,
+      sample_slug: sample?.slug || null,
+    },
+    website_origins: (process.env.WEBSITE_ORIGINS || '*'),
     webhook_token: getSetting('webhook_token'),
     website_url: getSetting('website_url', ''),
     env_website_url: process.env.WEBSITE_URL || null,

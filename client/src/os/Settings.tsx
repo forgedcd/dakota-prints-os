@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Copy, Save, Webhook, Users, Terminal, RefreshCw, Send, Globe, Activity,
-  CheckCircle2, XCircle, ExternalLink, Mail,
+  CheckCircle2, XCircle, ExternalLink, Mail, Palette, Package,
 } from 'lucide-react';
 import { API_BASE, get, post, put, shortDate } from '../lib/api';
 import { Badge, Field, SkeletonRows, Spinner, useToast } from '../components/kit';
@@ -34,14 +34,20 @@ const PAYLOAD = `{
   },
   "items": [
     { "sku": "SP-TEE-1C", "qty": 48,
-      "spec": { "garment_colors": "Black", "ink_colors": "White + Red",
-                "size_breakdown": { "S": 6, "M": 12, "L": 18, "XL": 12 } } },
-    { "sku": "SGN-YARD", "qty": 10, "spec": { "sides": "Single-sided" } }
+      "variant_label": "2XL",
+      "size_breakdown": { "S": 6, "M": 12, "L": 18, "2XL": 12 },
+      "design_service": true,
+      "design_brief": "Bold rig silhouette, shop name arched over it, white + red ink.",
+      "files": [
+        { "url": "/uploads/cust-1738-logo.png", "filename": "logo.png", "kind": "logo" },
+        { "url": "/uploads/cust-1738-ref.jpg",  "filename": "ref.jpg",  "kind": "reference" }
+      ],
+      "spec": { "garment_colors": "Black", "ink_colors": "White + Red" } },
+    { "sku": "SGN-YARD", "qty": 25, "variant_label": "24x36" }
   ],
   "rush": false,
   "fulfillment": "ship",
   "payment_method": "Pay on invoice",
-  "artwork_url": "/uploads/art-1738000000-logo.ai",
   "po_number": "PO-88213",
   "notes": "Match last spring's ink."
 }`;
@@ -66,12 +72,22 @@ export default function Settings() {
 
   const ordersUrl = hook?.webhook_url || s.webhook_url || '';
   const token = hook?.webhook_token || s.webhook_token || '';
-  const curl = `curl -X POST ${ordersUrl} \\
+  const curl = `# catalog (public, no token)
+curl ${hook?.products_url || ''}
+
+# order intake
+curl -X POST ${ordersUrl} \\
   -H 'Content-Type: application/json' \\
   -H 'x-webhook-token: ${token}' \\
-  -d '{"customer":{"contact_name":"Jamie Fox","email":"jamie@example.com","phone":"605-555-0143"},
-       "items":[{"sku":"SP-TEE-1C","qty":48,"spec":{"garment_colors":"Black","ink_colors":"White"}}],
-       "rush":false,"fulfillment":"ship","payment_method":"Pay on invoice"}'`;
+  -d '{"customer":{"contact_name":"Jamie Fox","email":"jamie@example.com"},
+       "items":[{"sku":"SP-TEE-1C","qty":48,"variant_label":"2XL",
+                 "design_service":true,"design_brief":"Rig silhouette"}],
+       "rush":false,"fulfillment":"ship","payment_method":"Pay on invoice"}'
+
+# multi-file upload (multipart)
+curl -X POST ${ordersUrl.replace('/orders', '/uploads')} \\
+  -H 'x-webhook-token: ${token}' \\
+  -F 'artwork=@logo.ai' -F 'reference=@moodboard.jpg'`;
 
   async function save() {
     setBusy(true);
@@ -118,8 +134,8 @@ export default function Settings() {
             </Badge>
           </div>
           <p className="mt-1.5 text-[13px] text-ink-500">
-            dakotaprints.com is a separate site. It talks to this OS over three endpoints: order intake, catalog sync and
-            customer tracking. Give the website team the URL + token below.
+            dakotaprints.com is a separate site that reads its whole catalog from this OS. Publish toggles, prices, images
+            and sizes take effect immediately — no deploy. Give the website team the URLs and token below.
           </p>
         </div>
         <CmykRule className="cmyk-rule-thin mt-4" />
@@ -131,19 +147,32 @@ export default function Settings() {
               <button className="btn-ghost px-3 shrink-0" onClick={() => copy(ordersUrl, 'Endpoint')} aria-label="Copy intake endpoint"><Copy size={15} /></button>
             </div>
           </Field>
-          <div className="grid lg:grid-cols-2 gap-3">
-            <Field label="Product sync (GET)">
-              <div className="flex gap-2">
-                <input className="field font-mono text-[12px]" readOnly value={hook?.products_url || ''} />
-                <button className="btn-ghost px-3 shrink-0" onClick={() => copy(hook?.products_url, 'Products URL')} aria-label="Copy products endpoint"><Copy size={15} /></button>
-              </div>
-            </Field>
-            <Field label="Order tracking (GET)">
-              <div className="flex gap-2">
-                <input className="field font-mono text-[12px]" readOnly value={hook?.track_url || ''} />
-                <button className="btn-ghost px-3 shrink-0" onClick={() => copy(hook?.track_url, 'Tracking URL')} aria-label="Copy tracking endpoint"><Copy size={15} /></button>
-              </div>
-            </Field>
+          <div className="rounded-lg border border-ink-100 bg-paper-50 p-3.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <Package size={15} className="text-ink-500" />
+              <p className="label">Public endpoints</p>
+              {hook?.catalog && (
+                <span className="text-[12px] font-bold text-ink-700">
+                  catalog: {hook.catalog.published} published of {hook.catalog.total} products
+                  <span className="ml-1.5 font-mono font-normal text-ink-500">v{hook.catalog.version}</span>
+                </span>
+              )}
+              <a className="btn-ghost btn-sm ml-auto" href="/products">Manage catalog</a>
+            </div>
+            <ul className="mt-2.5 space-y-1.5">
+              {(hook?.endpoints || []).map((ep: any) => (
+                <li key={ep.url + ep.label} className="flex items-center gap-2">
+                  <Badge tone={ep.method === 'POST' ? 'bg-[#EC008C]/10 text-[#B00A6C] border-[#EC008C]/25' : 'bg-[#00AEEF]/12 text-[#0475A0] border-[#00AEEF]/30'}>{ep.method}</Badge>
+                  <span className="text-[12.5px] font-bold w-[190px] shrink-0 truncate">{ep.label}</span>
+                  <input className="field font-mono text-[11.5px] h-9 min-w-0" readOnly value={ep.url} aria-label={ep.label} />
+                  <button className="btn-ghost px-2.5 h-9 shrink-0" onClick={() => copy(ep.url, ep.label)} aria-label={`Copy ${ep.label} URL`}><Copy size={14} /></button>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-2.5 text-[12px] text-ink-500">
+              Allowed browser origins (<span className="font-mono">WEBSITE_ORIGINS</span>): <span className="font-mono">{hook?.website_origins || '*'}</span>.
+              Full JSON shapes and pricing rules live in <span className="font-mono">API.md</span>.
+            </p>
           </div>
 
           <Field label="Webhook token" hint={hook?.token_from_env
@@ -288,6 +317,34 @@ export default function Settings() {
             </Field>
           ))}
         </div>
+      </section>
+
+      <section className="card p-4">
+        <div className="flex items-center gap-2">
+          <Palette size={16} className="text-[#B00A6C]" />
+          <h2 className="font-black text-[14px]">Design service defaults</h2>
+        </div>
+        <p className="mt-1 text-[12.5px] text-ink-500">
+          Used by new products and by any product that leaves its own fee or help text blank. Turn it on per product from
+          the catalog editor’s Design service tab.
+        </p>
+        <div className="mt-3 grid sm:grid-cols-3 gap-3">
+          <Field label="Offer it on new products by default">
+            <select className="field" value={String(s.design_service_enabled_default ?? '1')} onChange={(e) => set('design_service_enabled_default', e.target.value)}>
+              <option value="1">Yes — on by default</option>
+              <option value="0">No — off by default</option>
+            </select>
+          </Field>
+          <Field label="Default design fee" hint="Charged once per line item">
+            <input className="field tnum" type="number" step="0.01" value={s.design_service_fee ?? ''} onChange={(e) => set('design_service_fee', e.target.value)} />
+          </Field>
+          <Field label="Design request notification email" hint="Alerted when a customer asks for a design">
+            <input className="field" value={s.design_notify_email || ''} onChange={(e) => set('design_notify_email', e.target.value)} />
+          </Field>
+        </div>
+        <Field label="Default help text on the website">
+          <textarea className="field mt-1 min-h-[84px] py-2.5 text-[13px]" value={s.design_service_help || ''} onChange={(e) => set('design_service_help', e.target.value)} />
+        </Field>
       </section>
 
       <section className="card p-4">

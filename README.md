@@ -15,6 +15,22 @@ www.dakotaprints.com  →  the website (separate repo, posts orders here)
 
 ---
 
+## Catalog management (OS → website)
+
+The **Products** page is a full catalog manager: a Published switch per product (optimistic,
+with a *Live on site* / *Hidden* chip), website ordering, duplicate/archive/delete, bulk
+publish/unpublish/recategorise, and an editor with five sections — Details (name, slug, SKU,
+badge, descriptions), Pricing (base price, quantity breaks with validation, live example-price
+calculator), Sizes & options (variant table with absolute price *or* upcharge, stock, reorder,
+one-click standard apparel sizes), Images (drag-and-drop multi-upload, set primary, alt text,
+reorder) and Design service (per-product "Design it for me" toggle, fee, help text). Shop-wide
+design-service defaults live on Settings.
+
+Every save stamps `updated_at`, which bumps `/api/public/catalog-version` — so the website can
+poll cheaply and pick changes up immediately.
+
+---
+
 ## What's inside
 
 | Screen                | What it does                                                                                                                                  |
@@ -75,6 +91,8 @@ before a real deploy.
 | `ADMIN_PASSWORD`        | `ForgedOS2026!`                | Seeded password for both accounts                              |
 | `OS_WEBHOOK_TOKEN`      | `dakota-website-2026`          | Shared token the website sends as `x-webhook-token`            |
 | `WEBSITE_URL`           | `https://www.dakotaprints.com` | Public site this OS backs (shown in Settings, used for the connection check) |
+| `WEBSITE_ORIGINS`       | `*`                            | Comma-separated CORS allow-list for `/api/public/*`            |
+| `DESIGN_NOTIFY_EMAIL`   | `orders@dakotaprints.com`      | Seeds the design-request notification address                  |
 | `STRIPE_SECRET_KEY`     | —                              | Optional, see "Where the real services drop in"                |
 | `RESEND_API_KEY`        | —                              | Optional                                                       |
 | `TWILIO_*`              | —                              | Optional                                                       |
@@ -140,15 +158,28 @@ their specs, writes a `created` timeline event, builds the five-step task chain
 (payment → proof → print → finishing → ship), raises an internal notification and logs the
 "order received" email/SMS.
 
-### 2. Catalog sync
+Per-item fields the checkout can send: `variant_label` (an active size/dimension/option),
+`size_breakdown`, `design_service` + `design_brief`, and `files: [{url, filename, kind}]`
+(`kind` = `artwork` | `logo` | `reference`). When a line requests a design, the OS adds the
+design fee once, inserts **"Create design from customer brief"** at the front of the task chain,
+tags the order and raises a design-request notification.
+
+### 2. Catalog sync — the OS owns the catalog
 
 ```
-GET /api/public/products              → { count, synced_at, products: [...] }
-GET /api/public/products/:sku
-GET /api/public/settings              → shop name, phone, address, tax, rush fee, turnaround
+GET /api/public/products              → { count, catalog_version, synced_at, products: [...] }
+GET /api/public/products/:slug        → one product (404 when unpublished)
+GET /api/public/catalog-version       → cheap { version, etag, published_count, product_count }
+GET /api/public/settings              → shop profile, tax, rush fee, design-service defaults
 ```
 
-Products marked inactive in the OS disappear from this feed immediately.
+Each product carries `slug`, `badge`, short + long descriptions, `images[]`, `variants[]`
+(with a **resolved unit price**), `price_tiers[]`, `design_service {enabled, fee, help_text}`
+and `allow_artwork_upload`. Unpublishing a product on the OS **Products** page removes it from
+this feed and 404s its slug on the next request — no deploy needed.
+
+**The full contract, with exact JSON shapes and the pricing-resolution rules, is in
+[`API.md`](./API.md).** That file is the handoff document for the website.
 
 ### 3. Order tracking
 
@@ -160,14 +191,19 @@ GET /api/public/track/DP-20260728-1042?email=jamie@example.com   (recommended fo
 Returns status, status label, payment status, due date, tracking number, line items and the
 public timeline.
 
-### 4. Artwork upload
+### 4. File uploads
 
 ```
-POST /api/public/artwork   (multipart, field name "file", 12 MB max)
-→ { url: "/uploads/art-….ai" }
+POST /api/public/uploads   (multipart, token, fields "artwork" | "logo" | "reference" | "files")
+→ { count, files: [{ url, filename, kind, bytes }] }
+
+POST /api/public/artwork   (legacy single "file" field, no token)
+→ { url: "/uploads/art-….ai", name, kind }
 ```
 
-Post the returned `url` back as `artwork_url` on the order.
+Post the returned file objects back in the order payload as per-item `files[]` (or the legacy
+`artwork_url`). Uploaded files show as a thumbnail grid with download links on the order and are
+listed on the printable job ticket.
 
 Every call to `/api/public/*` is recorded in `webhook_log` (endpoint, HTTP status, order
 number, IP, payload preview) and surfaced in Settings.

@@ -9,7 +9,7 @@ import { get, post, shortDate } from '../lib/api';
 import { useAuth } from '../lib/store';
 import { Badge } from '../components/kit';
 
-const NAV = [
+const NAV: { to: string; label: string; icon: any; end?: boolean }[] = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/orders', label: 'Orders', icon: ClipboardList },
   { to: '/board', label: 'Fulfillment', icon: KanbanSquare },
@@ -43,7 +43,7 @@ export default function OSLayout() {
   const NavList = ({ onClick }: { onClick?: () => void }) => (
     <nav className="px-2 py-3 space-y-0.5">
       {NAV.map((n) => (
-        <NavLink key={n.to} to={n.to} end={n.end} onClick={onClick}
+        <NavLink key={n.to} to={n.to} end={n.end ?? false} onClick={onClick}
           className={({ isActive }) => `relative flex items-center gap-2.5 min-h-[44px] px-3 rounded-lg text-[13.5px] font-bold transition-colors
             ${isActive ? 'bg-paper-100 text-ink' : 'text-ink-500 hover:text-ink hover:bg-paper-50'}`}>
           {({ isActive }: any) => (
