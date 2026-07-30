@@ -22,6 +22,7 @@ import {
   absUrl, catalogVersion, designDefaults, money, publicProduct, publishedProducts,
   resolveUnitPrice, tiersFor, variantsFor,
 } from '../catalog.js';
+import { priceLine, PricingError } from '../pricing.js';
 
 const router = express.Router();
 
@@ -170,6 +171,34 @@ router.post('/artwork', diskStore('art').single('file'), (req, res) => {
   res.status(201).json({ url: `/uploads/${req.file.filename}`, name: req.file.originalname, kind: 'artwork' });
 });
 
+// POST /api/public/quote — resolve a single line's price without creating an
+// order. Same resolver as checkout, so this is guaranteed to match. Body:
+// { slug|sku, qty, selection } where `selection` shape depends on pricing_mode
+// (see API.md). Never trusts a client price; only returns what the server computed.
+router.post('/quote', auditable('/quote'), (req, res) => {
+  const { slug, sku, qty = 1, selection = {}, variant_label = null } = req.body || {};
+  const p = sku
+    ? db.prepare('SELECT * FROM products WHERE sku=? COLLATE NOCASE AND published=1 AND active=1').get(sku)
+    : (slug ? db.prepare('SELECT * FROM products WHERE slug=? COLLATE NOCASE AND published=1 AND active=1').get(slug) : null);
+  if (!p) return res.status(404).json({ error: 'Product not found or not published' });
+  const q = Math.max(1, Number(qty) || 1);
+  try {
+    let priced;
+    if (p.pricing_mode && p.pricing_mode !== 'tiered_unit') {
+      priced = priceLine(p, { ...selection, qty: q }, { tiersFor, variantsFor, resolveUnitPrice });
+    } else {
+      const tiers = tiersFor(p.id);
+      const variant = variant_label ? variantsFor(p.id, true).find((v) => v.label.toLowerCase() === String(variant_label).toLowerCase()) : null;
+      const unit = resolveUnitPrice(p, { tiers, variant, qty: q });
+      priced = { unit_price: unit, line_total: money(unit * q), meta: { pricing_mode: 'tiered_unit', variant_label: variant?.label || null, qty: q } };
+    }
+    res.json({ sku: p.sku, slug: p.slug, name: p.name, pricing_mode: p.pricing_mode || 'tiered_unit', ...priced });
+  } catch (err) {
+    if (err instanceof PricingError) return res.status(err.status || 400).json({ error: err.message, code: err.code });
+    throw err;
+  }
+});
+
 // ---------------------------------------------------------------------------
 // POST /api/public/orders — the headline bridge. Prices are ALWAYS resolved
 // here (base price → tier → variant → design fee → rush → tax → shipping);
@@ -190,7 +219,9 @@ router.post('/orders', auditable('/orders'), (req, res) => {
   const rushPct = Number(getSetting('rush_fee_pct')) / 100;
   const dflt = designDefaults();
 
-  const result = db.transaction(() => {
+  let result;
+  try {
+  result = db.transaction(() => {
     // 1. match or create the customer
     let cust = db.prepare('SELECT * FROM customers WHERE lower(email) = lower(?)').get(customer.email);
     if (cust) {
@@ -217,8 +248,21 @@ router.post('/orders', auditable('/orders'), (req, res) => {
       const variant = p && label
         ? variantsFor(p.id, true).find((v) => v.label.toLowerCase() === String(label).toLowerCase()) || null
         : null;
-      const unit = p ? resolveUnitPrice(p, { tiers, variant, qty }) : money(it.unit_price);
-      const line = money(unit * qty);
+
+      // Dispatch by pricing_mode. tiered_unit keeps the original variant/label
+      // path exactly; flat_option/sqft/matrix go through the shared resolver
+      // driven by `it.selection` (option_id / material_id+dims / axis_value_ids).
+      // The client price is NEVER trusted for any mode.
+      let unit, line, resolvedMeta = null;
+      if (p && p.pricing_mode && p.pricing_mode !== 'tiered_unit') {
+        const priced = priceLine(p, { ...(it.selection || {}), qty }, { tiersFor, variantsFor, resolveUnitPrice });
+        unit = priced.unit_price;
+        line = priced.line_total;
+        resolvedMeta = priced.meta;
+      } else {
+        unit = p ? resolveUnitPrice(p, { tiers, variant, qty }) : money(it.unit_price);
+        line = money(unit * qty);
+      }
       subtotal += line;
 
       const design = !!it.design_service && (!p || p.design_service_enabled);
@@ -228,6 +272,7 @@ router.post('/orders', auditable('/orders'), (req, res) => {
       const spec = { ...(it.spec || {}) };
       if (label) spec.variant = label;
       if (it.size_breakdown) spec.size_breakdown = it.size_breakdown;
+      if (resolvedMeta) spec.pricing = resolvedMeta;
 
       const fileList = []
         .concat(Array.isArray(it.files) ? it.files : [])
@@ -324,6 +369,10 @@ router.post('/orders', auditable('/orders'), (req, res) => {
       track_url: `/api/public/track/${num}`,
     };
   })();
+  } catch (err) {
+    if (err instanceof PricingError) return res.status(err.status || 400).json({ error: err.message, code: err.code });
+    throw err;
+  }
 
   res.locals.order_number = result.order_number;
   res.status(201).json(result);

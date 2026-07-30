@@ -9,6 +9,7 @@
 //   4. design service adds product.design_service_fee (or the shop default) ONCE per line
 //   5. rush adds rush_fee_pct of the order subtotal, then tax, then shipping
 import { bumpCatalogRev, catalogRev, db, getSetting } from './db.js';
+import { pricingDataFor } from './pricing.js';
 
 export const money = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
@@ -85,6 +86,10 @@ export function publicProduct(p, origin = '') {
     min_qty: p.min_qty,
     turnaround_days: p.turnaround_days,
     website_order: p.website_order,
+    pricing_mode: p.pricing_mode || 'tiered_unit',
+    unit_label: p.unit_label || null,
+    fine_print: p.fine_print || null,
+    pricing: pricingDataFor(p),
     images: imagesFor(p.id).map((i) => ({
       url: absUrl(i.url, origin),          // absolute — safe to drop straight into <img src>
       path: i.url,                          // OS-relative original
@@ -161,5 +166,7 @@ export function adminProduct(p) {
     variants: variantsFor(p.id),
     variant_count: db.prepare('SELECT COUNT(*) n FROM product_variants WHERE product_id=?').get(p.id).n,
     price_tiers: tiersFor(p.id),
+    pricing_mode: p.pricing_mode || 'tiered_unit',
+    pricing: pricingDataFor(p),
   };
 }

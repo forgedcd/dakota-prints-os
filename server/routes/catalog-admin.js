@@ -13,6 +13,12 @@ import {
   adminProduct, bool01, catalogVersion, designDefaults, imagesFor, money,
   numOrNull, resolveUnitPrice, tiersFor, touchProduct, variantsFor,
 } from '../catalog.js';
+import {
+  axesFor, cellKeyFrom, materialsFor, matrixCellsFor, optionsFor, priceLine, PricingError,
+} from '../pricing.js';
+import { runImport, buildTemplateCsv, exportPricingCsv } from '../pricing-import.js';
+
+const PRICING_MODES = ['tiered_unit', 'flat_option', 'sqft', 'matrix'];
 
 const router = express.Router();
 
@@ -77,6 +83,7 @@ const PRODUCT_FIELDS = [
   'base_price', 'unit', 'min_qty', 'turnaround_days', 'stock', 'active', 'published',
   'design_service_enabled', 'design_service_fee', 'design_service_help', 'allow_artwork_upload',
   'website_order', 'slug', 'image_url', 'options_json',
+  'pricing_mode', 'unit_label', 'rate_per_sqft', 'minimum_sqft', 'double_sided_multiplier', 'fine_print',
 ];
 
 function normalise(body, existing = null) {
@@ -106,11 +113,21 @@ function normalise(body, existing = null) {
   else if (has('options')) out.options_json = JSON.stringify(body.options || {});
   if (has('slug') && body.slug) out.slug = uniqueSlug(slugify(body.slug), existing?.id);
   else if (!existing && out.name) out.slug = uniqueSlug(out.name);
+  if (has('pricing_mode')) {
+    if (!PRICING_MODES.includes(body.pricing_mode)) throw Object.assign(new Error(`pricing_mode must be one of ${PRICING_MODES.join(', ')}`), { status: 400 });
+    out.pricing_mode = body.pricing_mode;
+  }
+  if (has('unit_label')) out.unit_label = body.unit_label || null;
+  if (has('rate_per_sqft')) out.rate_per_sqft = numOrNull(body.rate_per_sqft);
+  if (has('minimum_sqft')) out.minimum_sqft = Number(body.minimum_sqft) > 0 ? Number(body.minimum_sqft) : 1;
+  if (has('double_sided_multiplier')) out.double_sided_multiplier = Number(body.double_sided_multiplier) > 0 ? Number(body.double_sided_multiplier) : 2;
+  if (has('fine_print')) out.fine_print = body.fine_print || null;
   return out;
 }
 
 router.post('/products', (req, res) => {
-  const p = normalise(req.body || {});
+  let p;
+  try { p = normalise(req.body || {}); } catch (e) { return res.status(e.status || 400).json({ error: e.message }); }
   if (!p.sku || !p.name) return res.status(400).json({ error: 'sku and name are required' });
   const d = designDefaults();
   const row = {
@@ -142,7 +159,8 @@ router.post('/products', (req, res) => {
 router.patch('/products/:id', (req, res) => {
   const existing = productById(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Product not found' });
-  const p = normalise(req.body || {}, existing);
+  let p;
+  try { p = normalise(req.body || {}, existing); } catch (e) { return res.status(e.status || 400).json({ error: e.message }); }
   const keys = Object.keys(p).filter((k) => PRODUCT_FIELDS.includes(k));
   if (keys.length) {
     try {
@@ -421,6 +439,178 @@ router.get('/products/:id/quote', (req, res) => {
     tax: money((subtotal + rush) * taxRate), total: money(subtotal + rush + (subtotal + rush) * taxRate),
     below_min_qty: qty < (p.min_qty || 1),
   });
+});
+
+
+// ------------------------------------------------------------ flat_option
+router.get('/products/:id/options', (req, res) => res.json(optionsFor(Number(req.params.id))));
+
+router.put('/products/:id/options', (req, res) => {
+  const p = productById(req.params.id);
+  if (!p) return res.status(404).json({ error: 'Product not found' });
+  const rows = Array.isArray(req.body?.options) ? req.body.options : Array.isArray(req.body) ? req.body : [];
+  for (const o of rows) {
+    if (!String(o.label || '').trim()) return res.status(400).json({ error: 'Every option needs a label' });
+    if (numOrNull(o.price) === null) return res.status(400).json({ error: `"${o.label}" needs a price` });
+  }
+  const ins = db.prepare('INSERT INTO product_options (product_id,label,price,sku_suffix,sort_order,active) VALUES (?,?,?,?,?,?)');
+  db.transaction(() => {
+    db.prepare('DELETE FROM product_options WHERE product_id=?').run(p.id);
+    rows.forEach((o, i) => ins.run(p.id, String(o.label).trim(), money(o.price), o.sku_suffix || null, Number(o.sort_order ?? i), bool01(o.active, 1)));
+  })();
+  touchProduct(p.id);
+  res.json(optionsFor(p.id));
+});
+
+// ------------------------------------------------------------------- sqft
+router.get('/products/:id/materials', (req, res) => res.json(materialsFor(Number(req.params.id))));
+
+router.put('/products/:id/materials', (req, res) => {
+  const p = productById(req.params.id);
+  if (!p) return res.status(404).json({ error: 'Product not found' });
+  const rows = Array.isArray(req.body?.materials) ? req.body.materials : Array.isArray(req.body) ? req.body : [];
+  for (const m of rows) {
+    if (!String(m.label || '').trim()) return res.status(400).json({ error: 'Every material needs a label' });
+    if (numOrNull(m.rate_per_sqft) === null) return res.status(400).json({ error: `"${m.label}" needs a rate per sqft` });
+  }
+  const ins = db.prepare('INSERT INTO product_materials (product_id,label,rate_per_sqft,allows_double_sided,sort_order,active) VALUES (?,?,?,?,?,?)');
+  db.transaction(() => {
+    db.prepare('DELETE FROM product_materials WHERE product_id=?').run(p.id);
+    rows.forEach((m, i) => ins.run(p.id, String(m.label).trim(), money(m.rate_per_sqft), bool01(m.allows_double_sided, 1), Number(m.sort_order ?? i), bool01(m.active, 1)));
+  })();
+  touchProduct(p.id);
+  res.json(materialsFor(p.id));
+});
+
+// ------------------------------------------------------------------ matrix
+router.get('/products/:id/axes', (req, res) => res.json(axesFor(Number(req.params.id))));
+
+/**
+ * Full replace of axes + values + cells in one shot (the editor/importer
+ * post the whole matrix, which keeps cell_key regeneration simple and atomic).
+ * Body: { axes: [{ name, values: [{ value, meta }] }], cells: [{ values: [valueIdxPerAxis], price }] }
+ * `cells[].values` are POSITIONAL INDEXES into each axis's `values` array
+ * (not DB ids, since ids don't exist until insert) — the server resolves the
+ * real axis_value ids and builds the stable cell_key.
+ */
+router.put('/products/:id/matrix', (req, res) => {
+  const p = productById(req.params.id);
+  if (!p) return res.status(404).json({ error: 'Product not found' });
+  const axesIn = Array.isArray(req.body?.axes) ? req.body.axes : [];
+  const cellsIn = Array.isArray(req.body?.cells) ? req.body.cells : [];
+  if (axesIn.length < 2 || axesIn.length > 4) return res.status(400).json({ error: 'Matrix pricing supports 2-4 axes' });
+  for (const a of axesIn) {
+    if (!String(a.name || '').trim()) return res.status(400).json({ error: 'Every axis needs a name' });
+    if (!Array.isArray(a.values) || !a.values.length) return res.status(400).json({ error: `Axis "${a.name}" needs at least one value` });
+  }
+
+  const insAxis = db.prepare('INSERT INTO product_axes (product_id,name,axis_order) VALUES (?,?,?)');
+  const insVal = db.prepare('INSERT INTO product_axis_values (axis_id,value,meta_json,value_order) VALUES (?,?,?,?)');
+  const insCell = db.prepare('INSERT INTO product_matrix_cells (product_id,cell_key,price) VALUES (?,?,?)');
+
+  const result = db.transaction(() => {
+    db.prepare('DELETE FROM product_matrix_cells WHERE product_id=?').run(p.id);
+    db.prepare('DELETE FROM product_axes WHERE product_id=?').run(p.id); // cascades to axis_values
+
+    const axisValueIds = []; // axisValueIds[axisIdx][valueIdx] = db id
+    axesIn.forEach((a, ai) => {
+      const axisId = insAxis.run(p.id, String(a.name).trim(), ai).lastInsertRowid;
+      axisValueIds[ai] = a.values.map((v, vi) =>
+        insVal.run(axisId, String(v.value).trim(), v.meta ? JSON.stringify(v.meta) : null, vi).lastInsertRowid);
+    });
+
+    let added = 0, errors = [];
+    for (const c of cellsIn) {
+      if (!Array.isArray(c.values) || c.values.length !== axesIn.length) { errors.push(c); continue; }
+      const ids = c.values.map((vi, ai) => axisValueIds[ai][vi]);
+      if (ids.some((id) => id === undefined)) { errors.push(c); continue; }
+      const price = numOrNull(c.price);
+      if (price === null) { errors.push(c); continue; }
+      insCell.run(p.id, cellKeyFrom(ids), money(price));
+      added++;
+    }
+    return { added, error_count: errors.length };
+  })();
+
+  touchProduct(p.id);
+  res.json({ ...result, axes: axesFor(p.id), cells: matrixCellsFor(p.id) });
+});
+
+// ---------------------------------------------------------- pricing quote v2
+/** Live price preview for any pricing_mode, used by the editor's Pricing tab. */
+router.post('/products/:id/price-preview', (req, res) => {
+  const p = productById(req.params.id);
+  if (!p) return res.status(404).json({ error: 'Product not found' });
+  try {
+    const priced = priceLine(p, req.body || {}, { tiersFor, variantsFor, resolveUnitPrice });
+    res.json(priced);
+  } catch (e) {
+    if (e instanceof PricingError) return res.status(e.status || 400).json({ error: e.message, code: e.code });
+    throw e;
+  }
+});
+
+// ------------------------------------------------------------- CSV importer
+const csvUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 4 * 1024 * 1024 } });
+
+/** Step 1 — upload + parse + diff preview. Nothing is written to the DB here. */
+router.post('/products/:id/pricing-import/preview', csvUpload.single('file'), (req, res) => {
+  const p = productById(req.params.id);
+  if (!p) return res.status(404).json({ error: 'Product not found' });
+  if (!req.file) return res.status(400).json({ error: 'CSV file is required (field name "file")' });
+  try {
+    const text = req.file.buffer.toString('utf8');
+    const preview = runImport({ product: p, csvText: text, commit: false });
+    res.json({ ...preview, filename: req.file.originalname });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+/** Step 2 — commit. Body carries back the same csvText + filename so preview and commit can never drift. */
+router.post('/products/:id/pricing-import/commit', express.json({ limit: '4mb' }), (req, res) => {
+  const p = productById(req.params.id);
+  if (!p) return res.status(404).json({ error: 'Product not found' });
+  const { csv_text, filename } = req.body || {};
+  if (!csv_text) return res.status(400).json({ error: 'csv_text is required (re-send the file contents from the preview step)' });
+  try {
+    const result = runImport({ product: p, csvText: csv_text, commit: true, actor: req.user?.name || 'OS admin', filename: filename || 'upload.csv' });
+    touchProduct(p.id);
+    res.json(result);
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+router.get('/products/:id/pricing-import/template', (req, res) => {
+  const p = productById(req.params.id);
+  if (!p) return res.status(404).json({ error: 'Product not found' });
+  try {
+    const csv = buildTemplateCsv(p);
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="${p.slug || p.sku}-pricing-template.csv"`);
+    res.send(csv);
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+router.get('/products/:id/pricing-export', (req, res) => {
+  const p = productById(req.params.id);
+  if (!p) return res.status(404).json({ error: 'Product not found' });
+  try {
+    const csv = exportPricingCsv(p);
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="${p.slug || p.sku}-pricing-export.csv"`);
+    res.send(csv);
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+router.get('/products/:id/pricing-imports', (req, res) => {
+  const rows = db.prepare('SELECT * FROM pricing_imports WHERE product_id=? ORDER BY datetime(created_at) DESC, id DESC LIMIT 20').all(Number(req.params.id));
+  res.json(rows);
 });
 
 export default router;

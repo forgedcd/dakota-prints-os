@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import bcrypt from 'bcryptjs';
 import { seedCatalog } from './catalog-seed.js';
+import { seedPricingModeProducts } from './catalog-seed-pricing-modes.js';
 
 const DB_PATH = process.env.DATABASE_PATH || './data/dakota.db';
 export const UPLOAD_DIR = process.env.UPLOAD_DIR || './data/uploads';
@@ -193,6 +194,14 @@ export function migrate() {
   addColumn('order_items', 'design_brief', 'TEXT');
   addColumn('order_items', 'variant_label', 'TEXT');
 
+  // --- pricing modes (Products page: pricing_mode drives which fields show)
+  addColumn('products', 'pricing_mode', "TEXT NOT NULL DEFAULT 'tiered_unit'");
+  addColumn('products', 'unit_label', 'TEXT');                 // flat_option: e.g. "per sheet"
+  addColumn('products', 'rate_per_sqft', 'REAL');               // sqft
+  addColumn('products', 'minimum_sqft', 'REAL NOT NULL DEFAULT 1');
+  addColumn('products', 'double_sided_multiplier', 'REAL NOT NULL DEFAULT 2');
+  addColumn('products', 'fine_print', 'TEXT');                  // e.g. ticket book add-on-guide note
+
   db.exec(`
   CREATE TABLE IF NOT EXISTS product_images (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -236,6 +245,75 @@ export function migrate() {
     created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
   );
   CREATE INDEX IF NOT EXISTS idx_order_item_files_item ON order_item_files(order_item_id);
+
+  -- ------------------------------------------------------------ pricing modes
+  -- flat_option: named options with an absolute price (Business Cards, Engineering Drawings)
+  CREATE TABLE IF NOT EXISTS product_options (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    label TEXT NOT NULL,
+    price REAL NOT NULL,
+    sku_suffix TEXT,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    active INTEGER NOT NULL DEFAULT 1
+  );
+  CREATE INDEX IF NOT EXISTS idx_product_options_product ON product_options(product_id);
+
+  -- sqft: optional named materials, each with its own rate + double-sided flag
+  CREATE TABLE IF NOT EXISTS product_materials (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    label TEXT NOT NULL,
+    rate_per_sqft REAL NOT NULL,
+    allows_double_sided INTEGER NOT NULL DEFAULT 1,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    active INTEGER NOT NULL DEFAULT 1
+  );
+  CREATE INDEX IF NOT EXISTS idx_product_materials_product ON product_materials(product_id);
+
+  -- matrix: 2-4 named axes, each with ordered values (+ optional per-value metadata json)
+  CREATE TABLE IF NOT EXISTS product_axes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,             -- e.g. "Finished size", "Parts", "Quantity"
+    axis_order INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE INDEX IF NOT EXISTS idx_product_axes_product ON product_axes(product_id);
+
+  CREATE TABLE IF NOT EXISTS product_axis_values (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    axis_id INTEGER NOT NULL REFERENCES product_axes(id) ON DELETE CASCADE,
+    value TEXT NOT NULL,            -- e.g. "10 books", "3 Parts", "8.5\" x 11\""
+    meta_json TEXT,                 -- e.g. {"books":10,"forms":500} for the quantity axis
+    value_order INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE INDEX IF NOT EXISTS idx_product_axis_values_axis ON product_axis_values(axis_id);
+
+  -- one absolute TOTAL price per axis-value combination, keyed by a stable
+  -- "v1|v2|v3[|v4]" cell_key (axis_value ids in axis order) so imports can diff rows.
+  CREATE TABLE IF NOT EXISTS product_matrix_cells (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    cell_key TEXT NOT NULL,
+    price REAL NOT NULL,
+    UNIQUE(product_id, cell_key)
+  );
+  CREATE INDEX IF NOT EXISTS idx_product_matrix_cells_product ON product_matrix_cells(product_id);
+
+  -- pricing import audit log (who / when / file / row counts) shown in the Products panel
+  CREATE TABLE IF NOT EXISTS pricing_imports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id INTEGER REFERENCES products(id) ON DELETE SET NULL,
+    product_name TEXT,
+    filename TEXT,
+    mode TEXT,
+    actor TEXT,
+    rows_added INTEGER NOT NULL DEFAULT 0,
+    rows_changed INTEGER NOT NULL DEFAULT 0,
+    rows_unchanged INTEGER NOT NULL DEFAULT 0,
+    rows_error INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+  );
   `);
 
   // --- backfill slugs, sort order, updated_at
@@ -472,13 +550,17 @@ export function seed() {
     for (const p of PRODUCTS) stmt.run({ ...p, stock: p.stock ?? null, options_json: JSON.stringify(p.options || {}) });
   }
 
-  if (db.prepare('SELECT COUNT(*) n FROM customers').get().n === 0) {
+  // Demo customers/orders are opt-in only: SEED_DEMO_ORDERS=true. Default OFF so that
+  // deleting all demo/test orders on a live deploy does not silently recreate them on next boot.
+  const seedDemoOrders = String(process.env.SEED_DEMO_ORDERS || '').toLowerCase() === 'true';
+
+  if (seedDemoOrders && db.prepare('SELECT COUNT(*) n FROM customers').get().n === 0) {
     const stmt = db.prepare(`INSERT INTO customers (company,contact_name,email,phone,address,city,state,zip,notes,source,created_at)
       VALUES (@company,@contact_name,@email,@phone,@address,@city,@state,@zip,@notes,@source,@created_at)`);
     CUSTOMERS.forEach((c, i) => stmt.run({ ...c, created_at: iso(daysAgo(120 - i * 7)) }));
   }
 
-  if (db.prepare('SELECT COUNT(*) n FROM orders WHERE 1').get().n === 0) {
+  if (seedDemoOrders && db.prepare('SELECT COUNT(*) n FROM orders WHERE 1').get().n === 0) {
     const products = db.prepare('SELECT * FROM products').all();
     const bySku = Object.fromEntries(products.map((p) => [p.sku, p]));
     const taxRate = Number(getSetting('tax_rate')) / 100;
@@ -589,4 +671,5 @@ export function seed() {
   // the legacy image_url → product_images move), then backfill catalog content.
   migrate();
   seedCatalog();
+  seedPricingModeProducts();
 }

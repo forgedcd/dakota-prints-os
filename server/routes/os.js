@@ -11,7 +11,8 @@ import {
 } from '../services.js';
 import { renderEmail } from '../emails.js';
 import catalogAdmin from './catalog-admin.js';
-import { catalogVersion } from '../catalog.js';
+import { catalogVersion, resolveUnitPrice, tiersFor, variantsFor } from '../catalog.js';
+import { priceLine, PricingError } from '../pricing.js';
 
 const router = express.Router();
 
@@ -134,13 +135,32 @@ router.post('/orders', (req, res) => {
   const taxRate = Number(getSetting('tax_rate')) / 100;
   const rushPct = Number(getSetting('rush_fee_pct')) / 100;
   let subtotal = 0;
-  const lines = items.map((it) => {
-    const p = db.prepare('SELECT * FROM products WHERE id=? OR sku=?').get(it.product_id || 0, it.sku || '');
-    const qty = Math.max(1, Number(it.qty) || 1);
-    const unit = Number(it.unit_price) || p?.base_price || 0;
-    const line = money(unit * qty); subtotal += line;
-    return { p, qty, unit, line };
-  });
+  let lines;
+  try {
+    lines = items.map((it) => {
+      const p = db.prepare('SELECT * FROM products WHERE id=? OR sku=?').get(it.product_id || 0, it.sku || '');
+      const qty = Math.max(1, Number(it.qty) || 1);
+      // Same shared resolver as the public checkout — no duplicated pricing math,
+      // and a client-supplied unit_price is never trusted for a catalog product.
+      // A line with no matching product (ad-hoc "custom job") still allows a
+      // manually-typed price, same as before.
+      let unit;
+      if (p && p.pricing_mode && p.pricing_mode !== 'tiered_unit') {
+        unit = priceLine(p, { ...(it.selection || {}), qty }, { tiersFor, variantsFor, resolveUnitPrice }).unit_price;
+      } else if (p) {
+        const tiers = tiersFor(p.id);
+        const variant = it.variant_id ? variantsFor(p.id, true).find((v) => v.id === Number(it.variant_id)) : null;
+        unit = resolveUnitPrice(p, { tiers, variant, qty });
+      } else {
+        unit = money(it.unit_price);
+      }
+      const line = money(unit * qty); subtotal += line;
+      return { p, qty, unit, line };
+    });
+  } catch (err) {
+    if (err instanceof PricingError) return res.status(err.status || 400).json({ error: err.message, code: err.code });
+    throw err;
+  }
   const rush_fee = rush ? money(subtotal * rushPct) : 0;
   const tax = money((subtotal + rush_fee) * taxRate);
   const total = money(subtotal + rush_fee + tax);
@@ -326,6 +346,30 @@ router.put('/settings', (req, res) => {
   const out = {};
   for (const k of SETTING_KEYS) out[k] = getSetting(k, '');
   res.json(out);
+});
+
+// Admin-only destructive reset — used after seeding/demo cleanup on a live
+// deploy. Requires the literal phrase "DELETE ALL ORDERS" in the body so it
+// can never be triggered by a stray click. Customers/products are untouched.
+router.post('/settings/clear-orders', (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Only an admin can clear all orders.' });
+  const { confirm } = req.body || {};
+  if (confirm !== 'DELETE ALL ORDERS') {
+    return res.status(400).json({ error: 'Type DELETE ALL ORDERS exactly to confirm.' });
+  }
+  const counts = db.transaction(() => {
+    const orders = db.prepare('SELECT COUNT(*) n FROM orders').get().n;
+    // order_items / order_events / order_item_files cascade via FK ON DELETE CASCADE;
+    // tasks/notifications/messages reference order_id with no cascade, so null them out
+    // rather than deleting history the shop may still want (task/notification lists).
+    db.prepare('UPDATE tasks SET order_id=NULL WHERE order_id IS NOT NULL').run();
+    db.prepare('UPDATE notifications SET order_id=NULL WHERE order_id IS NOT NULL').run();
+    db.prepare('UPDATE messages SET order_id=NULL WHERE order_id IS NOT NULL').run();
+    db.prepare('DELETE FROM orders').run();
+    db.prepare('UPDATE customers SET total_spend=0').run();
+    return { orders_deleted: orders };
+  })();
+  res.json({ ok: true, ...counts, cleared_by: req.user.name, cleared_at: new Date().toISOString() });
 });
 
 // ------------------------------------------------- website / webhook integration
