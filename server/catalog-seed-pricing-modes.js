@@ -4,6 +4,7 @@
 // Source of truth: /pricing-source/dakota-prints-pricing-source.md + the 4 CSVs.
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { db, getSetting, setSetting, uniqueSlug } from './db.js';
 import { parseCsv } from './pricing-import.js';
 import { cellKeyFrom } from './pricing.js';
@@ -16,10 +17,18 @@ const IMG_PNG = (n) => `/brand/products/${n}.png`;
 // CSV columns: size,parts,qty_label,books,forms,price
 const QTY_META = { EACH: { books: 1, forms: 50 } }; // rest are derived from the row's own books/forms
 
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+
 function loadMatrixCsv(file) {
-  const csvPath = path.resolve(process.cwd(), '..', 'pricing-source', file);
-  const altPath = path.resolve('/home/user/workspace/pricing-source', file);
-  const p = fs.existsSync(csvPath) ? csvPath : altPath;
+  // Bundled with the repo so production boots do not depend on any path outside
+  // the deployed tree. Dev checkouts may still keep the sheets one level up.
+  const candidates = [
+    path.join(HERE, 'seed-data', 'pricing-source', file),
+    path.resolve(process.cwd(), 'server', 'seed-data', 'pricing-source', file),
+    path.resolve(process.cwd(), '..', 'pricing-source', file),
+  ];
+  const p = candidates.find((c) => fs.existsSync(c));
+  if (!p) throw new Error(`Pricing seed CSV not found: ${file} (looked in ${candidates.join(', ')})`);
   const text = fs.readFileSync(p, 'utf8');
   const { records } = parseCsv(text);
   return records;
